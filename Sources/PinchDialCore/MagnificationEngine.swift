@@ -19,7 +19,6 @@ public struct GestureSample: Equatable {
 public struct MagnificationEngine {
     public struct Configuration {
         public var sensitivity: Double = 0.035
-        public var inverted: Bool = false
         public var timeConstant: Double = 0.045
         public var idleTimeout: Double = 0.16
         public init() {}
@@ -39,7 +38,7 @@ public struct MagnificationEngine {
 
     public mutating func push(direction: Int, at time: Double) -> [GestureSample] {
         guard direction != 0, time.isFinite else { return [] }
-        let sign = (direction > 0 ? 1 : -1) * (configuration.inverted ? -1 : 1)
+        let sign = direction > 0 ? 1 : -1
         var samples: [GestureSample] = []
         if !isActive {
             isActive = true

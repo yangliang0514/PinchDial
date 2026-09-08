@@ -5,9 +5,7 @@ import PinchDialCore
 
 struct InputConfiguration {
     var enabled = true
-    var observeOnly = false
     var sensitivity = 0.035
-    var inverted = false
 }
 
 struct InputSnapshot {
@@ -67,7 +65,6 @@ final class InputService {
             cancelGesture()
             configuration = value
             engine.configuration.sensitivity = value.sensitivity
-            engine.configuration.inverted = value.inverted
             if reconnect || tap == nil { connectTap() }
             refreshStatus()
         }
@@ -92,16 +89,6 @@ final class InputService {
         }
     }
 
-    func testGesture() {
-        enqueue { [self] in
-            guard canGenerate else { refreshStatus(); return }
-            cancelGesture()
-            // A single bounded input, equivalent to one clockwise detent.
-            push(1)
-            publish()
-        }
-    }
-
     func shutdown(completion: @escaping () -> Void) {
         enqueue { [self] in
             cancelGesture()
@@ -121,7 +108,7 @@ final class InputService {
     }
 
     private var canGenerate: Bool {
-        configuration.enabled && !configuration.observeOnly && !sessionSuspended
+        configuration.enabled && !sessionSuspended
             && tap != nil && AXIsProcessTrusted() && CGPreflightPostEventAccess()
             && !IsSecureEventInputEnabled()
     }
@@ -135,16 +122,13 @@ final class InputService {
             let service = Unmanaged<InputService>.fromOpaque(context).takeUnretainedValue()
             return autoreleasepool { service.receive(type: type, event: event) }
         }
-        // Observation can run without posting privileges. Reconnecting switches
-        // tap mode explicitly; a listen-only tap never attempts suppression.
-        let passive = configuration.observeOnly
         guard let created = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap,
-            options: passive ? .listenOnly : .defaultTap,
+            options: .defaultTap,
             eventsOfInterest: mask, callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            snapshot.status = "Input unavailable — check permissions, then Retry"
+            snapshot.status = "Input unavailable — check permissions, then quit and reopen"
             snapshot.tapConnected = false
             publish()
             return
@@ -189,7 +173,7 @@ final class InputService {
             snapshot.lastInput = "\(rawKey == Int64(KeyBridge.clockwise) ? "F18" : "F19") at \(Date().formatted(date: .omitted, time: .standard))"
         }
         let decision = keys.handle(key: UInt16(rawKey), down: down, repeated: repeated,
-                                   enabled: canGenerate, observeOnly: configuration.observeOnly)
+                                   enabled: canGenerate)
         if let direction = decision.direction { push(direction) }
         // Counters are read on demand; no per-detent main-thread work or disk logs.
         return decision.consume ? nil : Unmanaged.passUnretained(event)
@@ -246,17 +230,14 @@ final class InputService {
 
     private func refreshStatus() {
         snapshot.tapConnected = tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
-        if tap == nil { snapshot.status = "Input unavailable — check permissions, then Retry" }
-        else if !snapshot.tapConnected { snapshot.status = "Input tap disabled — choose Retry Input Connection" }
+        if tap == nil { snapshot.status = "Input unavailable — check permissions, then quit and reopen" }
+        else if !snapshot.tapConnected { snapshot.status = "Input tap disabled — quit and reopen PinchDial" }
         else if sessionSuspended { snapshot.status = "Paused while session is inactive" }
-        else if configuration.observeOnly { snapshot.status = "Observing F18/F19 — keys pass through" }
         else if !configuration.enabled { snapshot.status = "Disabled — keys pass through" }
         else if !AXIsProcessTrusted() || !CGPreflightPostEventAccess() {
             snapshot.status = "Accessibility / posting access required"
         } else if IsSecureEventInputEnabled() { snapshot.status = "Paused during Secure Input" }
-        else { snapshot.status = configuration.inverted
-            ? "Ready — F18 zooms out, F19 zooms in"
-            : "Ready — F18 zooms in, F19 zooms out" }
+        else { snapshot.status = "Ready — F18 zooms in, F19 zooms out" }
         publish()
     }
 

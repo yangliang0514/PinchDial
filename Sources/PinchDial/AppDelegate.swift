@@ -11,26 +11,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var statusItem: NSStatusItem!
     private let statusRow = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
     private var enabledItem: NSMenuItem!
-    private var observeItem: NSMenuItem!
-    private var inverseItem: NSMenuItem!
     private var loginItem: NSMenuItem!
-    private var testItem: NSMenuItem!
-    private var testButton: NSButton?
     private var sensitivityItems: [NSMenuItem] = []
     private var diagnostics: NSWindow?
     private var diagnosticsText: NSTextView?
-    private var observeButton: NSButton?
     private var enabledButton: NSButton?
     private var diagnosticsTimer: Timer?
-    private var testWork: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        defaults.register(defaults: ["enabled": true, "sensitivity": 0.035, "inverted": false])
+        defaults.register(defaults: ["enabled": true, "sensitivity": 0.035])
         configuration.enabled = defaults.bool(forKey: "enabled")
         configuration.sensitivity = defaults.double(forKey: "sensitivity")
-        configuration.inverted = defaults.bool(forKey: "inverted")
         buildMenu()
         input.onSnapshot = { [weak self] value in
             guard let self else { return }
@@ -65,8 +58,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(statusRow)
         menu.addItem(.separator())
         enabledItem = item("Enable PinchDial", #selector(toggleEnabled), in: menu)
-        observeItem = item("Observe Only (Pass Keys Through)", #selector(toggleObserve), in: menu)
-        inverseItem = item("Reverse Zoom Direction", #selector(toggleInversion), in: menu)
         let sensitivity = NSMenuItem(title: "Sensitivity", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         submenu.autoenablesItems = false
@@ -80,9 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(.separator())
         item("Grant Accessibility…", #selector(grantAccessibility), in: menu)
         item("Grant Input Monitoring…", #selector(grantMonitoring), in: menu)
-        item("Retry Input Connection", #selector(retry), in: menu)
         menu.addItem(.separator())
-        testItem = item("Test Zoom In After 3 Seconds", #selector(scheduleTest), in: menu)
         item("Show Setup & Diagnostics…", #selector(showDiagnostics), in: menu)
         loginItem = item("Launch at Login", #selector(toggleLogin), in: menu)
         menu.addItem(.separator())
@@ -106,39 +95,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func updateMenu() {
         enabledItem.state = configuration.enabled ? .on : .off
-        observeItem.state = configuration.observeOnly ? .on : .off
-        observeButton?.state = observeItem.state
         enabledButton?.state = enabledItem.state
-        inverseItem.state = configuration.inverted ? .on : .off
         sensitivityItems.forEach {
             $0.state = ($0.representedObject as? Double) == configuration.sensitivity ? .on : .off
         }
         let status = SMAppService.mainApp.status
         loginItem.state = status == .enabled ? .on : (status == .requiresApproval ? .mixed : .off)
         loginItem.title = status == .requiresApproval ? "Launch at Login — Approval Needed…" : "Launch at Login"
-        testItem.isEnabled = configuration.enabled && !configuration.observeOnly
-            && AXIsProcessTrusted() && CGPreflightPostEventAccess() && snapshot.tapConnected
-        testButton?.isEnabled = testItem.isEnabled
-        testButton?.title = testItem.title
     }
 
-    private func apply(reconnect: Bool = false) {
-        testWork?.cancel()
-        testItem.title = "Test Zoom In After 3 Seconds"
+    private func apply() {
         defaults.set(configuration.enabled, forKey: "enabled")
         defaults.set(configuration.sensitivity, forKey: "sensitivity")
-        defaults.set(configuration.inverted, forKey: "inverted")
-        input.configure(configuration, reconnect: reconnect)
+        input.configure(configuration)
         updateMenu()
     }
 
     @objc private func toggleEnabled() { configuration.enabled.toggle(); apply() }
-    @objc private func toggleObserve() { configuration.observeOnly.toggle(); apply(reconnect: true) }
-    @objc private func toggleInversion() { configuration.inverted.toggle(); apply() }
     @objc private func setSensitivity(_ sender: NSMenuItem) {
         if let value = sender.representedObject as? Double { configuration.sensitivity = value; apply() }
     }
-    @objc private func retry() { apply(reconnect: true) }
 
     @objc private func grantAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -174,20 +150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         updateMenu()
     }
 
-    @objc private func scheduleTest() {
-        testWork?.cancel()
-        testItem.title = "Test Scheduled — Switch to Your App"
-        updateMenu()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            testItem.title = "Test Zoom In After 3 Seconds"
-            updateMenu()
-            input.testGesture()
-        }
-        testWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: work)
-    }
-
     @objc private func showDiagnostics() {
         if diagnostics == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 670, height: 600),
@@ -198,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             window.delegate = self
             window.minSize = NSSize(width: 540, height: 420)
             let content = window.contentView!
-            let scroll = NSScrollView(frame: NSRect(x: 0, y: 90, width: 670, height: 510))
+            let scroll = NSScrollView(frame: NSRect(x: 0, y: 54, width: 670, height: 546))
             scroll.translatesAutoresizingMaskIntoConstraints = false
             scroll.hasVerticalScroller = true
             let text = NSTextView(frame: scroll.bounds)
@@ -215,32 +177,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             content.addSubview(scroll)
             let access = NSButton(title: "Accessibility…", target: self, action: #selector(grantAccessibility))
             let monitoring = NSButton(title: "Input Monitoring…", target: self, action: #selector(grantMonitoring))
-            let retryButton = NSButton(title: "Retry", target: self, action: #selector(retry))
-            let observe = NSButton(checkboxWithTitle: "Observe only", target: self, action: #selector(toggleObserve))
             let enabled = NSButton(checkboxWithTitle: "Enable", target: self, action: #selector(toggleEnabled))
-            observeButton = observe
             enabledButton = enabled
-            [access, monitoring, retryButton].forEach { $0.bezelStyle = .rounded }
-            let controls = NSStackView(views: [access, monitoring, retryButton, observe, enabled])
+            [access, monitoring].forEach { $0.bezelStyle = .rounded }
+            let controls = NSStackView(views: [access, monitoring, enabled])
             controls.orientation = .horizontal
             controls.spacing = 10
             controls.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(controls)
-            let test = NSButton(title: "Test Zoom In After 3 Seconds", target: self, action: #selector(scheduleTest))
-            test.bezelStyle = .rounded
-            test.translatesAutoresizingMaskIntoConstraints = false
-            testButton = test
-            content.addSubview(test)
             NSLayoutConstraint.activate([
                 scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
                 scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
                 scroll.topAnchor.constraint(equalTo: content.topAnchor),
-                scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -90),
+                scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -54),
                 controls.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
                 controls.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -18),
-                controls.centerYAnchor.constraint(equalTo: content.bottomAnchor, constant: -64),
-                test.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
-                test.centerYAnchor.constraint(equalTo: content.bottomAnchor, constant: -26)
+                controls.centerYAnchor.constraint(equalTo: content.bottomAnchor, constant: -27)
             ])
             window.center()
             diagnostics = window
@@ -267,11 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
            counterclockwise to F19 (one key press per detent).
         2. Use the menu-bar icon to grant Accessibility access.
            Grant Input Monitoring too if input is unavailable.
-        3. Choose Retry Input Connection. If macOS requests it,
-           quit and reopen PinchDial after granting access.
-        4. Turn on Observe Only to check the counter below.
-           This passes F18/F19 through and does not zoom.
-        5. Turn Observe Only off; enable PinchDial. Close this
+        3. Quit and reopen PinchDial after granting access.
+        4. Enable PinchDial. Close this
            window, focus Safari/Preview/Maps, place the pointer
            over content, and rotate the dial.
 
@@ -290,17 +239,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         Sensitivity (log units/detent): \(configuration.sensitivity)
         App: \(Bundle.main.bundlePath)
 
-        TEST WITHOUT THE DIAL
-        Choose Test Zoom In After 3 Seconds, then switch to a
-        target app and put the pointer over its content.
-        This sends one bounded detent using current settings.
-
         IMPORTANT LIMITS
         The gesture backend uses undocumented CGEvent fields.
         Submitted samples do not prove an app received them.
         This app does not emulate raw trackpad finger contacts.
         F18/F19 from any device are reserved while enabled.
-        Observe Only is temporary and resets at the next launch.
         No unrelated keystrokes are recorded or logged.
 
         Close this window to stop diagnostic refreshes.
@@ -320,7 +263,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                                             object: nil, queue: .main) { [weak self] _ in self?.input.interrupt() })
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.testWork?.cancel()
                 self?.input.suspend(true)
             })
         }
@@ -334,7 +276,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        testWork?.cancel()
         diagnosticsTimer?.invalidate()
         input.shutdown { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater

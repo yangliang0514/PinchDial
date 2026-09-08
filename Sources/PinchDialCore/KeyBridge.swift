@@ -16,7 +16,7 @@ public struct KeyBridge {
     public init() {}
 
     public mutating func handle(key: UInt16, down: Bool, repeated: Bool,
-                                enabled: Bool, observeOnly: Bool) -> Decision {
+                                enabled: Bool) -> Decision {
         guard key == Self.clockwise || key == Self.counterclockwise else {
             return Decision(consume: false)
         }
@@ -25,7 +25,7 @@ public struct KeyBridge {
         }
         // Preserve ownership of a press even if settings change while it is held.
         if repeated { return Decision(consume: consumedKeys.contains(key)) }
-        guard enabled, !observeOnly else { return Decision(consume: false) }
+        guard enabled else { return Decision(consume: false) }
         consumedKeys.insert(key)
         return Decision(consume: true, direction: key == Self.clockwise ? 1 : -1)
     }

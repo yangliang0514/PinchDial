@@ -94,13 +94,11 @@ final class MagnificationEngineTests: XCTestCase {
         XCTAssertEqual(scale, 1, accuracy: 1e-10)
     }
 
-    func testInversionAndInvalidTime() {
-        var configuration = MagnificationEngine.Configuration()
-        configuration.inverted = true
-        var engine = MagnificationEngine(configuration: configuration)
+    func testInvalidTime() {
+        var engine = MagnificationEngine()
         XCTAssertTrue(engine.push(direction: 1, at: .nan).isEmpty)
         _ = engine.push(direction: 1, at: 0)
         XCTAssertTrue(engine.advance(to: -.infinity).isEmpty)
-        XCTAssertEqual(logAmount(drain(&engine, from: 0)), -0.035, accuracy: 1e-10)
+        XCTAssertEqual(logAmount(drain(&engine, from: 0)), 0.035, accuracy: 1e-10)
     }
 }
