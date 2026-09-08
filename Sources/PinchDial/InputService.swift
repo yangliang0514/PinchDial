@@ -1,0 +1,267 @@
+import AppKit
+import Carbon
+import CoreGraphics
+import PinchDialCore
+
+struct InputConfiguration {
+    var enabled = true
+    var observeOnly = false
+    var sensitivity = 0.035
+    var inverted = false
+}
+
+struct InputSnapshot {
+    var status = "Starting input service…"
+    var tapConnected = false
+    var matchedPresses = 0
+    var postedSamples = 0
+    var lastInput = "None"
+    var gestureActive = false
+}
+
+/// Public methods and callbacks belong to the main thread. Mutable input state
+/// below belongs exclusively to the worker run loop, including the CGEvent tap.
+final class InputService {
+    var onSnapshot: ((InputSnapshot) -> Void)?
+    private var workerLoop: CFRunLoop?
+    private var pendingCommands: [() -> Void] = []
+    private var worker: Thread?
+
+    // Worker-owned state.
+    private var tap: CFMachPort?
+    private var tapSource: CFRunLoopSource?
+    private var frameTimer: Timer?
+    private var configuration = InputConfiguration()
+    private var engine = MagnificationEngine()
+    private var keys = KeyBridge()
+    private let backend = GestureBackend()
+    private var snapshot = InputSnapshot()
+    private var targetPID: pid_t?
+    private var anchor = CGPoint.zero
+    private var sessionSuspended = false
+
+    func start() {
+        let thread = Thread { [self] in
+            autoreleasepool {
+                let keepAlive = Port()
+                RunLoop.current.add(keepAlive, forMode: .default)
+                let loop = CFRunLoopGetCurrent()!
+                DispatchQueue.main.async { [self] in
+                    workerLoop = loop
+                    let commands = pendingCommands
+                    pendingCommands.removeAll()
+                    commands.forEach { enqueue($0) }
+                }
+                CFRunLoopRun()
+                keepAlive.invalidate()
+            }
+        }
+        thread.name = "PinchDial.Input"
+        thread.qualityOfService = .userInteractive
+        worker = thread
+        thread.start()
+    }
+
+    func configure(_ value: InputConfiguration, reconnect: Bool = false) {
+        enqueue { [self] in
+            cancelGesture()
+            configuration = value
+            engine.configuration.sensitivity = value.sensitivity
+            engine.configuration.inverted = value.inverted
+            if reconnect || tap == nil { connectTap() }
+            refreshStatus()
+        }
+    }
+
+    func refresh() {
+        enqueue { [self] in
+            snapshot.gestureActive = engine.isActive
+            refreshStatus()
+        }
+    }
+
+    func interrupt() { enqueue { [self] in cancelGesture(); publish() } }
+
+    func suspend(_ suspended: Bool) {
+        enqueue { [self] in
+            sessionSuspended = suspended
+            cancelGesture()
+            keys.reset()
+            if !suspended && tap == nil { connectTap() }
+            refreshStatus()
+        }
+    }
+
+    func testGesture() {
+        enqueue { [self] in
+            guard canGenerate else { refreshStatus(); return }
+            cancelGesture()
+            // A single bounded input, equivalent to one clockwise detent.
+            push(1)
+            publish()
+        }
+    }
+
+    func shutdown(completion: @escaping () -> Void) {
+        enqueue { [self] in
+            cancelGesture()
+            disconnectTap()
+            CFRunLoopStop(CFRunLoopGetCurrent())
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
+    private func enqueue(_ command: @escaping () -> Void) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let loop = workerLoop else { pendingCommands.append(command); return }
+        CFRunLoopPerformBlock(loop, CFRunLoopMode.commonModes.rawValue) {
+            autoreleasepool(invoking: command)
+        }
+        CFRunLoopWakeUp(loop)
+    }
+
+    private var canGenerate: Bool {
+        configuration.enabled && !configuration.observeOnly && !sessionSuspended
+            && tap != nil && AXIsProcessTrusted() && CGPreflightPostEventAccess()
+            && !IsSecureEventInputEnabled()
+    }
+
+    private func connectTap() {
+        disconnectTap()
+        let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
+            | (CGEventMask(1) << CGEventType.keyUp.rawValue)
+        let callback: CGEventTapCallBack = { _, type, event, context in
+            guard let context else { return Unmanaged.passUnretained(event) }
+            let service = Unmanaged<InputService>.fromOpaque(context).takeUnretainedValue()
+            return autoreleasepool { service.receive(type: type, event: event) }
+        }
+        // Observation can run without posting privileges. Reconnecting switches
+        // tap mode explicitly; a listen-only tap never attempts suppression.
+        let passive = configuration.observeOnly
+        guard let created = CGEvent.tapCreate(
+            tap: .cgSessionEventTap, place: .headInsertEventTap,
+            options: passive ? .listenOnly : .defaultTap,
+            eventsOfInterest: mask, callback: callback,
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ) else {
+            snapshot.status = "Input unavailable — check permissions, then Retry"
+            snapshot.tapConnected = false
+            publish()
+            return
+        }
+        tap = created
+        tapSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, created, 0)
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), tapSource, .commonModes)
+        CGEvent.tapEnable(tap: created, enable: true)
+        snapshot.tapConnected = true
+    }
+
+    private func disconnectTap() {
+        if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
+        if let tapSource { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), tapSource, .commonModes) }
+        tap = nil
+        tapSource = nil
+        keys.reset()
+        snapshot.tapConnected = false
+    }
+
+    private func receive(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            cancelGesture()
+            keys.reset()
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            snapshot.status = "Input tap restarted after interruption"
+            publish()
+            return Unmanaged.passUnretained(event)
+        }
+        guard type == .keyDown || type == .keyUp,
+              event.getIntegerValueField(.eventSourceUserData) != GestureBackend.marker else {
+            return Unmanaged.passUnretained(event)
+        }
+        let rawKey = event.getIntegerValueField(.keyboardEventKeycode)
+        guard rawKey == Int64(KeyBridge.clockwise) || rawKey == Int64(KeyBridge.counterclockwise) else {
+            return Unmanaged.passUnretained(event)
+        }
+        let down = type == .keyDown
+        let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+        if down && !repeated {
+            snapshot.matchedPresses += 1
+            snapshot.lastInput = "\(rawKey == Int64(KeyBridge.clockwise) ? "F18" : "F19") at \(Date().formatted(date: .omitted, time: .standard))"
+        }
+        let decision = keys.handle(key: UInt16(rawKey), down: down, repeated: repeated,
+                                   enabled: canGenerate, observeOnly: configuration.observeOnly)
+        if let direction = decision.direction { push(direction) }
+        // Counters are read on demand; no per-detent main-thread work or disk logs.
+        return decision.consume ? nil : Unmanaged.passUnretained(event)
+    }
+
+    private func push(_ direction: Int) {
+        let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard let frontmost, frontmost != ProcessInfo.processInfo.processIdentifier else { return }
+        if engine.isActive && frontmost != targetPID { cancelGesture() }
+        if !engine.isActive {
+            targetPID = frontmost
+            anchor = CGEvent(source: nil)?.location ?? .zero
+        }
+        emit(engine.push(direction: direction, at: ProcessInfo.processInfo.systemUptime))
+        if frameTimer == nil {
+            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+                autoreleasepool { self?.tick() }
+            }
+            timer.tolerance = 0.001
+            RunLoop.current.add(timer, forMode: .common)
+            frameTimer = timer
+        }
+    }
+
+    private func tick() {
+        guard canGenerate, NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID else {
+            cancelGesture()
+            return
+        }
+        emit(engine.advance(to: ProcessInfo.processInfo.systemUptime))
+        if !engine.isActive { stopTimer(); targetPID = nil }
+    }
+
+    private func emit(_ samples: [GestureSample], terminalTarget: pid_t? = nil) {
+        for sample in samples {
+            if backend.post(sample, location: anchor, terminalTarget: terminalTarget) {
+                snapshot.postedSamples += 1
+            }
+        }
+        snapshot.gestureActive = engine.isActive
+    }
+
+    private func cancelGesture() {
+        let terminal = engine.finish(cancelled: true)
+        if CGPreflightPostEventAccess(), let targetPID {
+            emit(terminal, terminalTarget: targetPID)
+        }
+        stopTimer()
+        targetPID = nil
+        snapshot.gestureActive = false
+    }
+
+    private func stopTimer() { frameTimer?.invalidate(); frameTimer = nil }
+
+    private func refreshStatus() {
+        snapshot.tapConnected = tap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
+        if tap == nil { snapshot.status = "Input unavailable — check permissions, then Retry" }
+        else if !snapshot.tapConnected { snapshot.status = "Input tap disabled — choose Retry Input Connection" }
+        else if sessionSuspended { snapshot.status = "Paused while session is inactive" }
+        else if configuration.observeOnly { snapshot.status = "Observing F18/F19 — keys pass through" }
+        else if !configuration.enabled { snapshot.status = "Disabled — keys pass through" }
+        else if !AXIsProcessTrusted() || !CGPreflightPostEventAccess() {
+            snapshot.status = "Accessibility / posting access required"
+        } else if IsSecureEventInputEnabled() { snapshot.status = "Paused during Secure Input" }
+        else { snapshot.status = configuration.inverted
+            ? "Ready — F18 zooms out, F19 zooms in"
+            : "Ready — F18 zooms in, F19 zooms out" }
+        publish()
+    }
+
+    private func publish() {
+        let value = snapshot
+        DispatchQueue.main.async { [weak self] in self?.onSnapshot?(value) }
+    }
+}
