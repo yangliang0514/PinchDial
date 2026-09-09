@@ -50,7 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func buildMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "plus.magnifyingglass", accessibilityDescription: "PinchDial")
+        let icon = NSImage(named: "MenuBarIcon")
+        icon?.size = NSSize(width: 18, height: 18)
+        icon?.isTemplate = true
+        statusItem.button?.image = icon
+        statusItem.button?.setAccessibilityLabel("PinchDial")
         let menu = NSMenu()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -151,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func showDiagnostics() {
+        NSApp.setActivationPolicy(.regular)
         if diagnostics == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 670, height: 600),
                                   styleMask: [.titled, .closable, .resizable, .miniaturizable],
@@ -253,8 +258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === diagnostics else { return }
         diagnosticsTimer?.invalidate()
         diagnosticsTimer = nil
+        NSApp.setActivationPolicy(.accessory)
     }
 
     private func observeWorkspace() {
