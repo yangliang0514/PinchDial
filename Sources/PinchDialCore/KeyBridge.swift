@@ -16,18 +16,20 @@ public struct KeyBridge {
     public init() {}
 
     public mutating func handle(key: UInt16, down: Bool, repeated: Bool,
-                                enabled: Bool) -> Decision {
-        guard key == Self.clockwise || key == Self.counterclockwise else {
-            return Decision(consume: false)
-        }
+                                enabled: Bool, shortcuts: ZoomShortcuts = ZoomShortcuts(),
+                                modifiers: ShortcutModifiers = []) -> Decision {
         if !down {
             return Decision(consume: consumedKeys.remove(key) != nil)
         }
         // Preserve ownership of a press even if settings change while it is held.
         if repeated { return Decision(consume: consumedKeys.contains(key)) }
-        guard enabled else { return Decision(consume: false) }
+        guard enabled, shortcuts.isValid else { return Decision(consume: false) }
+        let shortcut = Shortcut(keyCode: key, modifiers: modifiers)
+        guard shortcut == shortcuts.zoomIn || shortcut == shortcuts.zoomOut else {
+            return Decision(consume: false)
+        }
         consumedKeys.insert(key)
-        return Decision(consume: true, direction: key == Self.clockwise ? 1 : -1)
+        return Decision(consume: true, direction: shortcut == shortcuts.zoomIn ? 1 : -1)
     }
 
     public mutating func reset() { consumedKeys.removeAll() }

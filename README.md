@@ -1,6 +1,6 @@
 # PinchDial
 
-A small macOS menu-bar utility originally made for the **Keychron Nape Pro’s dial**. It turns **F18 into smooth pinch-to-zoom in** and **F19 into zoom out**, and works with any keyboard or mouse that can be configured to send those keys.
+A small macOS menu-bar utility originally made for the **Keychron Nape Pro’s dial**. By default, it turns **F18 into smooth pinch-to-zoom in** and **F19 into zoom out**, and works with any keyboard or mouse that can be configured to send those keys.
 
 Requires macOS 13+ and an Xcode/Swift toolchain. No external dependencies.
 
@@ -28,9 +28,13 @@ Run the app bundle from a consistent location and keep the same signing identity
 3. Quit and reopen PinchDial after granting permissions.
 4. Keep **Enable PinchDial** on. Focus the target app, place the pointer over its content, and turn the dial.
 
-Sensitivity can be changed from the menu. Disable PinchDial to pass F18/F19 through normally, or choose Quit to stop it. While enabled, it captures F18/F19 from every device; other keys pass through.
+Sensitivity can be changed from the menu. Disable PinchDial to pass assigned keys through normally, or choose Quit to stop it. While enabled, it captures assigned keys from every device in other apps; keys remain available inside PinchDial for setup. Each quick press generates one zoom step. Holding a key for 400 ms starts continuous zoom at 12 steps per second, independent of macOS keyboard repeat settings. Releasing the key stops repeating zoom. Changing apps or settings, pressing a shortcut modifier, or losing input access cancels the hold; press again to resume. Command, Option, Control, and Shift combinations pass through.
 
-**Show Setup…** opens a compact setup UI with zoom shortcut fields, a sensitivity slider, menu-bar and login checkboxes, and permission indicators. These new controls are a UI preview: edits stay in the window and do not change app behavior or saved settings. Permission indicators reflect access when the window is created; request buttons are not connected yet. Continue using the existing menu commands to change actual settings or request access.
+**Show Setup… → Zoom shortcuts** lets you choose a key for each direction. Search the supported-key list (including F1–F20) and click a result to apply it immediately. Double-click a result to apply it and close the picker, or click outside to close it. **Use Default F18/F19** restores that direction’s default key (unless the other direction is using it). You can also choose **Record a key** and press a key or turn a configured dial to apply the recorded key immediately. Recording only listens while PinchDial is active; switching apps stops it.
+
+Assignments apply immediately and persist across launches. Invalid searches cannot become shortcuts, and both directions cannot use the same key. Only single ordinary keys are supported in this version; modifier-only, media, and power keys are excluded. Letter and punctuation names refer to physical US keyboard positions, which may differ from the characters on another layout. Caps Lock and the Fn/numeric-pad event flags do not change shortcut matching. F18/F19 remain recommended because choosing a typing key takes that key away from other apps while enabled. Map your device to send the selected keys separately; selecting a key in PinchDial does not reprogram your device.
+
+The sensitivity slider, menu-bar/login checkboxes, and permission buttons in the setup window remain a UI preview. Continue using the existing menu commands to change those settings or request access.
 
 ## Tests
 
@@ -38,7 +42,7 @@ Sensitivity can be changed from the menu. Disable PinchDial to pass F18/F19 thro
 bash scripts/test.sh
 ```
 
-The unit tests cover key handling and gesture smoothing. To check gesture encoding locally without posting input:
+The unit tests cover custom shortcuts, modifier filtering, persistence validation, held-key ownership during reassignment, the key catalog, and gesture smoothing. To check gesture encoding locally without posting input:
 
 ```sh
 dist/PinchDial.app/Contents/MacOS/PinchDial --check-gesture-encoding

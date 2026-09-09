@@ -1,4 +1,5 @@
 import AppKit
+import PinchDialCore
 import SwiftUI
 import ApplicationServices
 import Carbon
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         defaults.register(defaults: ["enabled": true, "sensitivity": 0.035])
         configuration.enabled = defaults.bool(forKey: "enabled")
         configuration.sensitivity = defaults.double(forKey: "sensitivity")
+        configuration.shortcuts = ZoomShortcuts.restored(from: defaults.data(forKey: "zoomShortcuts"))
         buildMenu()
         input.onSnapshot = { [weak self] value in
             guard let self else { return }
@@ -107,6 +109,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func apply() {
         defaults.set(configuration.enabled, forKey: "enabled")
         defaults.set(configuration.sensitivity, forKey: "sensitivity")
+        if let data = try? JSONEncoder().encode(configuration.shortcuts) {
+            defaults.set(data, forKey: "zoomShortcuts")
+        }
         input.configure(configuration)
         updateMenu()
     }
@@ -154,12 +159,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.setActivationPolicy(.regular)
         if diagnostics == nil {
             let view = SetupView(
+                initialShortcuts: configuration.shortcuts,
+                onShortcutsChange: { [weak self] value in
+                    guard let self, value.isValid else { return }
+                    self.configuration.shortcuts = value
+                    self.apply()
+                },
                 initialSensitivity: configuration.sensitivity,
                 initialLaunchAtLogin: SMAppService.mainApp.status == .enabled,
                 accessibilityGranted: AXIsProcessTrusted(),
                 monitoringGranted: CGPreflightListenEventAccess()
             )
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 438),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 478),
                                   styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
             window.title = "PinchDial"

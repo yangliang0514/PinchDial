@@ -6,6 +6,7 @@ import PinchDialCore
 struct InputConfiguration {
     var enabled = true
     var sensitivity = 0.035
+    var shortcuts = ZoomShortcuts()
 }
 
 struct InputSnapshot {
@@ -32,6 +33,7 @@ final class InputService {
     private var configuration = InputConfiguration()
     private var engine = MagnificationEngine()
     private var keys = KeyBridge()
+    private var heldZoom = HeldZoom()
     private let backend = GestureBackend()
     private var snapshot = InputSnapshot()
     private var targetPID: pid_t?
@@ -117,6 +119,7 @@ final class InputService {
         disconnectTap()
         let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
             | (CGEventMask(1) << CGEventType.keyUp.rawValue)
+            | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
         let callback: CGEventTapCallBack = { _, type, event, context in
             guard let context else { return Unmanaged.passUnretained(event) }
             let service = Unmanaged<InputService>.fromOpaque(context).takeUnretainedValue()
@@ -158,23 +161,35 @@ final class InputService {
             publish()
             return Unmanaged.passUnretained(event)
         }
+        if type == .flagsChanged {
+            if !ShortcutModifiers.fromEventFlags(event.flags.rawValue).isEmpty { cancelGesture() }
+            return Unmanaged.passUnretained(event)
+        }
         guard type == .keyDown || type == .keyUp,
               event.getIntegerValueField(.eventSourceUserData) != GestureBackend.marker else {
             return Unmanaged.passUnretained(event)
         }
         let rawKey = event.getIntegerValueField(.keyboardEventKeycode)
-        guard rawKey == Int64(KeyBridge.clockwise) || rawKey == Int64(KeyBridge.counterclockwise) else {
-            return Unmanaged.passUnretained(event)
-        }
+        guard let keyCode = UInt16(exactly: rawKey) else { return Unmanaged.passUnretained(event) }
         let down = type == .keyDown
         let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-        if down && !repeated {
+        // Let our own controls receive assigned keys, including search and recording.
+        let isOwnApp = NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+        let decision = keys.handle(key: keyCode, down: down, repeated: repeated,
+                                   enabled: canGenerate && !isOwnApp,
+                                   shortcuts: configuration.shortcuts,
+                                   modifiers: .fromEventFlags(event.flags.rawValue))
+        if decision.direction != nil {
             snapshot.matchedPresses += 1
-            snapshot.lastInput = "\(rawKey == Int64(KeyBridge.clockwise) ? "F18" : "F19") at \(Date().formatted(date: .omitted, time: .standard))"
+            snapshot.lastInput = "\(KeyCatalog.key(keyCode)?.name ?? String(keyCode)) at \(Date().formatted(date: .omitted, time: .standard))"
         }
-        let decision = keys.handle(key: UInt16(rawKey), down: down, repeated: repeated,
-                                   enabled: canGenerate)
-        if let direction = decision.direction { push(direction) }
+        if !down, heldZoom.release(key: keyCode) { cancelGesture() }
+        if let direction = decision.direction {
+            push(direction)
+            if targetPID != nil {
+                heldZoom.begin(key: keyCode, direction: direction, at: ProcessInfo.processInfo.systemUptime)
+            }
+        }
         // Counters are read on demand; no per-detent main-thread work or disk logs.
         return decision.consume ? nil : Unmanaged.passUnretained(event)
     }
@@ -203,8 +218,10 @@ final class InputService {
             cancelGesture()
             return
         }
-        emit(engine.advance(to: ProcessInfo.processInfo.systemUptime))
-        if !engine.isActive { stopTimer(); targetPID = nil }
+        let now = ProcessInfo.processInfo.systemUptime
+        if let direction = heldZoom.advance(to: now) { push(direction) }
+        emit(engine.advance(to: now))
+        if !engine.isActive && !heldZoom.isHeld { stopTimer(); targetPID = nil }
     }
 
     private func emit(_ samples: [GestureSample], terminalTarget: pid_t? = nil) {
@@ -217,6 +234,7 @@ final class InputService {
     }
 
     private func cancelGesture() {
+        heldZoom.cancel()
         let terminal = engine.finish(cancelled: true)
         if CGPreflightPostEventAccess(), let targetPID {
             emit(terminal, terminalTarget: targetPID)
@@ -237,7 +255,7 @@ final class InputService {
         else if !AXIsProcessTrusted() || !CGPreflightPostEventAccess() {
             snapshot.status = "Accessibility / posting access required"
         } else if IsSecureEventInputEnabled() { snapshot.status = "Paused during Secure Input" }
-        else { snapshot.status = "Ready — F18 zooms in, F19 zooms out" }
+        else { snapshot.status = "Ready — \(configuration.shortcuts.zoomIn.label) zooms in, \(configuration.shortcuts.zoomOut.label) zooms out" }
         publish()
     }
 

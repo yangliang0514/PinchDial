@@ -1,17 +1,23 @@
 import SwiftUI
+import PinchDialCore
 
-/// UI draft: edits remain local to this window until settings are connected.
+/// Shortcut edits are live; unrelated setup controls remain a UI preview.
 struct SetupView: View {
-    @State private var zoomIn = "F18"
-    @State private var zoomOut = "F19"
+    @State private var shortcuts: ZoomShortcuts
+    @State private var editingZoomIn = false
+    @State private var editingZoomOut = false
+    let onShortcutsChange: (ZoomShortcuts) -> Void
     @State private var sensitivity: Double
     @State private var showInMenuBar = true
     @State private var launchAtLogin: Bool
     let accessibilityGranted: Bool
     let monitoringGranted: Bool
 
-    init(initialSensitivity: Double, initialLaunchAtLogin: Bool,
+    init(initialShortcuts: ZoomShortcuts, onShortcutsChange: @escaping (ZoomShortcuts) -> Void,
+         initialSensitivity: Double, initialLaunchAtLogin: Bool,
          accessibilityGranted: Bool, monitoringGranted: Bool) {
+        _shortcuts = State(initialValue: initialShortcuts)
+        self.onShortcutsChange = onShortcutsChange
         _sensitivity = State(initialValue: initialSensitivity)
         _launchAtLogin = State(initialValue: initialLaunchAtLogin)
         self.accessibilityGranted = accessibilityGranted
@@ -34,10 +40,14 @@ struct SetupView: View {
 
             sectionTitle("Zoom shortcuts")
             VStack(spacing: 10) {
-                shortcutRow("Zoom in", symbol: "plus.magnifyingglass", key: $zoomIn)
-                shortcutRow("Zoom out", symbol: "minus.magnifyingglass", key: $zoomOut)
+                shortcutRow("Zoom in", symbol: "plus.magnifyingglass", zoomIn: true, presented: $editingZoomIn)
+                shortcutRow("Zoom out", symbol: "minus.magnifyingglass", zoomIn: false, presented: $editingZoomOut)
             }
             .padding(.top, 10)
+
+            Text("While enabled, assigned keys are captured in other apps from every device. F18/F19 are recommended.")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .padding(.top, 8)
 
             Divider().padding(.vertical, 16)
 
@@ -71,7 +81,7 @@ struct SetupView: View {
         }
         .font(.system(size: 12))
         .padding(22)
-        .frame(width: 340, height: 438, alignment: .topLeading)
+        .frame(width: 340, height: 478, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -79,20 +89,34 @@ struct SetupView: View {
         Text(title).font(.system(size: 12, weight: .semibold))
     }
 
-    private func shortcutRow(_ title: String, symbol: String, key: Binding<String>) -> some View {
+    private func shortcutRow(_ title: String, symbol: String, zoomIn: Bool, presented: Binding<Bool>) -> some View {
         HStack(spacing: 9) {
             Image(systemName: symbol)
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
             Text(title)
             Spacer()
-            TextField("Set shortcut", text: key)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .multilineTextAlignment(.center)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 94)
-                .accessibilityLabel("\(title) shortcut")
-                .help("Shortcut preview. Key recording will be added later.")
+            Button { presented.wrappedValue = true } label: {
+                Text((zoomIn ? shortcuts.zoomIn : shortcuts.zoomOut).label)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .frame(minWidth: 80)
+            }
+            .accessibilityLabel("\(title) shortcut")
+            .accessibilityValue((zoomIn ? shortcuts.zoomIn : shortcuts.zoomOut).label)
+            .help("Choose or record a key")
+            // Prefer the field’s bottom edge; AppKit adjusts placement to fit the screen.
+            .popover(isPresented: presented, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                ShortcutPicker(title: title,
+                               current: zoomIn ? shortcuts.zoomIn : shortcuts.zoomOut,
+                               other: zoomIn ? shortcuts.zoomOut : shortcuts.zoomIn,
+                               defaultKeyCode: zoomIn ? 79 : 80) { shortcut in
+                    var next = shortcuts
+                    if zoomIn { next.zoomIn = shortcut } else { next.zoomOut = shortcut }
+                    guard next.isValid else { return }
+                    shortcuts = next
+                    onShortcutsChange(next)
+                }
+            }
         }
     }
 
