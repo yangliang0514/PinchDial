@@ -1,24 +1,31 @@
 import SwiftUI
 import PinchDialCore
 
-/// Shortcut edits are live; unrelated setup controls remain a UI preview.
+final class SensitivityState: ObservableObject {
+    @Published var value = ZoomSensitivity.standard
+}
+
+/// Shortcut and sensitivity edits are live; other setup controls remain a UI preview.
 struct SetupView: View {
     @State private var shortcuts: ZoomShortcuts
     @State private var editingZoomIn = false
     @State private var editingZoomOut = false
     let onShortcutsChange: (ZoomShortcuts) -> Void
-    @State private var sensitivity: Double
+    @ObservedObject var sensitivityState: SensitivityState
+    let onSensitivityChange: (Double) -> Void
     @State private var showInMenuBar = true
     @State private var launchAtLogin: Bool
     let accessibilityGranted: Bool
     let monitoringGranted: Bool
 
     init(initialShortcuts: ZoomShortcuts, onShortcutsChange: @escaping (ZoomShortcuts) -> Void,
-         initialSensitivity: Double, initialLaunchAtLogin: Bool,
+         sensitivityState: SensitivityState, onSensitivityChange: @escaping (Double) -> Void,
+         initialLaunchAtLogin: Bool,
          accessibilityGranted: Bool, monitoringGranted: Bool) {
         _shortcuts = State(initialValue: initialShortcuts)
         self.onShortcutsChange = onShortcutsChange
-        _sensitivity = State(initialValue: initialSensitivity)
+        self.sensitivityState = sensitivityState
+        self.onSensitivityChange = onSensitivityChange
         _launchAtLogin = State(initialValue: initialLaunchAtLogin)
         self.accessibilityGranted = accessibilityGranted
         self.monitoringGranted = monitoringGranted
@@ -52,8 +59,11 @@ struct SetupView: View {
             Divider().padding(.vertical, 16)
 
             sectionTitle("Sensitivity")
-            Slider(value: $sensitivity, in: 0.018...0.065)
+            Slider(value: Binding(get: { sensitivityState.value }, set: onSensitivityChange),
+                   in: ZoomSensitivity.range)
                 .accessibilityLabel("Zoom sensitivity")
+                .accessibilityValue(String(format: "%.2f times Standard", sensitivityState.value / ZoomSensitivity.standard))
+                .help("Adjust how far each dial step zooms. Changes are saved automatically.")
                 .padding(.top, 8)
             HStack {
                 Text("Slower")

@@ -27,7 +27,7 @@ final class MagnificationEngineTests: XCTestCase {
         XCTAssertEqual(samples.filter { $0.phase == .began }.count, 1)
         XCTAssertEqual(samples.filter { $0.phase == .ended }.count, 1)
         XCTAssertEqual(samples.last?.phase, .ended)
-        XCTAssertEqual(logAmount(samples), 0.035, accuracy: 1e-10)
+        XCTAssertEqual(logAmount(samples), 0.0525, accuracy: 1e-10)
         XCTAssertTrue(engine.advance(to: 20).isEmpty)
     }
 
@@ -40,14 +40,14 @@ final class MagnificationEngineTests: XCTestCase {
         samples += engine.push(direction: 1, at: 0.04)
         samples += drain(&engine, from: 0.04)
         XCTAssertEqual(samples.filter { $0.phase == .began }.count, 1)
-        XCTAssertEqual(logAmount(samples), 0.105, accuracy: 1e-10)
+        XCTAssertEqual(logAmount(samples), 0.1575, accuracy: 1e-10)
     }
 
     func testFrameRateDoesNotChangeTotalZoom() {
         for frame in [1.0 / 30, 1.0 / 60, 1.0 / 120] {
             var engine = MagnificationEngine()
             _ = engine.push(direction: -1, at: 0)
-            XCTAssertEqual(logAmount(drain(&engine, from: 0, frame: frame)), -0.035, accuracy: 1e-10)
+            XCTAssertEqual(logAmount(drain(&engine, from: 0, frame: frame)), -0.0525, accuracy: 1e-10)
         }
     }
 
@@ -94,11 +94,35 @@ final class MagnificationEngineTests: XCTestCase {
         XCTAssertEqual(scale, 1, accuracy: 1e-10)
     }
 
+    func testSensitivityRangePreservesZoomAmountInBothDirections() {
+        for sensitivity in [ZoomSensitivity.range.lowerBound, ZoomSensitivity.standard, ZoomSensitivity.range.upperBound] {
+            for direction in [-1, 1] {
+                var configuration = MagnificationEngine.Configuration()
+                configuration.sensitivity = sensitivity
+                var engine = MagnificationEngine(configuration: configuration)
+                _ = engine.push(direction: direction, at: 0)
+                let samples = drain(&engine, from: 0)
+                XCTAssertEqual(logAmount(samples), Double(direction) * sensitivity, accuracy: 1e-10)
+                XCTAssertTrue(samples.allSatisfy { abs(log1p($0.magnification)) <= 0.040000001 })
+            }
+        }
+    }
+
+    func testSensitivityRestoration() {
+        XCTAssertEqual(ZoomSensitivity.restored(nil), ZoomSensitivity.standard)
+        XCTAssertEqual(ZoomSensitivity.restored(0.035), 0.035)
+        XCTAssertEqual(ZoomSensitivity.restored(0.083), 0.083)
+        XCTAssertEqual(ZoomSensitivity.restored(.nan), ZoomSensitivity.standard)
+        XCTAssertEqual(ZoomSensitivity.restored(.infinity), ZoomSensitivity.standard)
+        XCTAssertEqual(ZoomSensitivity.restored(-1), ZoomSensitivity.range.lowerBound)
+        XCTAssertEqual(ZoomSensitivity.restored(1), ZoomSensitivity.range.upperBound)
+    }
+
     func testInvalidTime() {
         var engine = MagnificationEngine()
         XCTAssertTrue(engine.push(direction: 1, at: .nan).isEmpty)
         _ = engine.push(direction: 1, at: 0)
         XCTAssertTrue(engine.advance(to: -.infinity).isEmpty)
-        XCTAssertEqual(logAmount(drain(&engine, from: 0)), 0.035, accuracy: 1e-10)
+        XCTAssertEqual(logAmount(drain(&engine, from: 0)), 0.0525, accuracy: 1e-10)
     }
 }

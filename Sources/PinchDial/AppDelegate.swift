@@ -14,15 +14,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private let statusRow = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
     private var enabledItem: NSMenuItem!
     private var loginItem: NSMenuItem!
-    private var sensitivityItems: [NSMenuItem] = []
+    private let sensitivityState = SensitivityState()
     private var diagnostics: NSWindow?
     private var observers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        defaults.register(defaults: ["enabled": true, "sensitivity": 0.035])
+        defaults.register(defaults: ["enabled": true])
         configuration.enabled = defaults.bool(forKey: "enabled")
-        configuration.sensitivity = defaults.double(forKey: "sensitivity")
+        configuration.sensitivity = ZoomSensitivity.restored(
+            (defaults.object(forKey: "sensitivity") as? NSNumber)?.doubleValue
+        )
+        sensitivityState.value = configuration.sensitivity
         configuration.shortcuts = ZoomShortcuts.restored(from: defaults.data(forKey: "zoomShortcuts"))
         buildMenu()
         input.onSnapshot = { [weak self] value in
@@ -61,16 +64,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(statusRow)
         menu.addItem(.separator())
         enabledItem = item("Enable PinchDial", #selector(toggleEnabled), in: menu)
-        let sensitivity = NSMenuItem(title: "Sensitivity", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        submenu.autoenablesItems = false
-        for (name, value) in [("Gentle", 0.018), ("Standard", 0.035), ("Fast", 0.065)] {
-            let row = item(name, #selector(setSensitivity(_:)), in: submenu)
-            row.representedObject = value
-            sensitivityItems.append(row)
-        }
-        sensitivity.submenu = submenu
-        menu.addItem(sensitivity)
         menu.addItem(.separator())
         item("Grant Accessibility…", #selector(grantAccessibility), in: menu)
         item("Grant Input Monitoring…", #selector(grantMonitoring), in: menu)
@@ -98,15 +91,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func updateMenu() {
         enabledItem.state = configuration.enabled ? .on : .off
-        sensitivityItems.forEach {
-            $0.state = ($0.representedObject as? Double) == configuration.sensitivity ? .on : .off
-        }
         let status = SMAppService.mainApp.status
         loginItem.state = status == .enabled ? .on : (status == .requiresApproval ? .mixed : .off)
         loginItem.title = status == .requiresApproval ? "Launch at Login — Approval Needed…" : "Launch at Login"
     }
 
     private func apply() {
+        configuration.sensitivity = ZoomSensitivity.clamped(configuration.sensitivity)
+        sensitivityState.value = configuration.sensitivity
         defaults.set(configuration.enabled, forKey: "enabled")
         defaults.set(configuration.sensitivity, forKey: "sensitivity")
         if let data = try? JSONEncoder().encode(configuration.shortcuts) {
@@ -117,9 +109,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func toggleEnabled() { configuration.enabled.toggle(); apply() }
-    @objc private func setSensitivity(_ sender: NSMenuItem) {
-        if let value = sender.representedObject as? Double { configuration.sensitivity = value; apply() }
-    }
 
     @objc private func grantAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -165,7 +154,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                     self.configuration.shortcuts = value
                     self.apply()
                 },
-                initialSensitivity: configuration.sensitivity,
+                sensitivityState: sensitivityState,
+                onSensitivityChange: { [weak self] value in
+                    guard let self else { return }
+                    self.configuration.sensitivity = value
+                    self.apply()
+                },
                 initialLaunchAtLogin: SMAppService.mainApp.status == .enabled,
                 accessibilityGranted: AXIsProcessTrusted(),
                 monitoringGranted: CGPreflightListenEventAccess()

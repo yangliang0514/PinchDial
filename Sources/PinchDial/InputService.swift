@@ -5,7 +5,7 @@ import PinchDialCore
 
 struct InputConfiguration {
     var enabled = true
-    var sensitivity = 0.035
+    var sensitivity = ZoomSensitivity.standard
     var shortcuts = ZoomShortcuts()
 }
 

@@ -18,7 +18,7 @@ public struct GestureSample: Equatable {
 /// Input and pending movement are in log-scale units; output is a relative scale delta.
 public struct MagnificationEngine {
     public struct Configuration {
-        public var sensitivity: Double = 0.035
+        public var sensitivity: Double = ZoomSensitivity.standard
         public var timeConstant: Double = 0.045
         public var idleTimeout: Double = 0.16
         public init() {}
@@ -51,8 +51,7 @@ public struct MagnificationEngine {
         }
         lastDirection = sign
         lastInput = time
-        let sensitivity = configuration.sensitivity.isFinite
-            ? min(max(configuration.sensitivity, 0.001), 0.15) : 0.035
+        let sensitivity = ZoomSensitivity.clamped(configuration.sensitivity)
         pending = min(max(pending + Double(sign) * sensitivity, -0.5), 0.5)
         return samples
     }
