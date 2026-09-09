@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import ApplicationServices
 import Carbon
 import ServiceManagement
@@ -14,9 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var loginItem: NSMenuItem!
     private var sensitivityItems: [NSMenuItem] = []
     private var diagnostics: NSWindow?
-    private var diagnosticsText: NSTextView?
-    private var enabledButton: NSButton?
-    private var diagnosticsTimer: Timer?
     private var observers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -31,7 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             statusRow.title = value.status
             statusItem.button?.toolTip = "PinchDial: \(value.status)"
             updateMenu()
-            renderDiagnostics()
         }
         input.start()
         input.configure(configuration)
@@ -76,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Grant Accessibility…", #selector(grantAccessibility), in: menu)
         item("Grant Input Monitoring…", #selector(grantMonitoring), in: menu)
         menu.addItem(.separator())
-        item("Show Setup & Diagnostics…", #selector(showDiagnostics), in: menu)
+        item("Show Setup…", #selector(showDiagnostics), in: menu)
         loginItem = item("Launch at Login", #selector(toggleLogin), in: menu)
         menu.addItem(.separator())
         item("Quit PinchDial", #selector(quit), in: menu)
@@ -99,7 +96,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func updateMenu() {
         enabledItem.state = configuration.enabled ? .on : .off
-        enabledButton?.state = enabledItem.state
         sensitivityItems.forEach {
             $0.state = ($0.representedObject as? Double) == configuration.sensitivity ? .on : .off
         }
@@ -157,110 +153,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func showDiagnostics() {
         NSApp.setActivationPolicy(.regular)
         if diagnostics == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 670, height: 600),
-                                  styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            let view = SetupView(
+                initialSensitivity: configuration.sensitivity,
+                initialLaunchAtLogin: SMAppService.mainApp.status == .enabled,
+                accessibilityGranted: AXIsProcessTrusted(),
+                monitoringGranted: CGPreflightListenEventAccess()
+            )
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 438),
+                                  styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
-            window.title = "PinchDial — Setup & Diagnostics"
+            window.title = "PinchDial"
             window.isReleasedWhenClosed = false
             window.delegate = self
-            window.minSize = NSSize(width: 540, height: 420)
-            let content = window.contentView!
-            let scroll = NSScrollView(frame: NSRect(x: 0, y: 54, width: 670, height: 546))
-            scroll.translatesAutoresizingMaskIntoConstraints = false
-            scroll.hasVerticalScroller = true
-            let text = NSTextView(frame: scroll.bounds)
-            text.isEditable = false
-            text.isSelectable = true
-            text.isRichText = false
-            text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-            text.textContainerInset = NSSize(width: 18, height: 18)
-            text.isVerticallyResizable = true
-            text.isHorizontallyResizable = false
-            text.autoresizingMask = [.width]
-            text.textContainer?.widthTracksTextView = true
-            scroll.documentView = text
-            content.addSubview(scroll)
-            let access = NSButton(title: "Accessibility…", target: self, action: #selector(grantAccessibility))
-            let monitoring = NSButton(title: "Input Monitoring…", target: self, action: #selector(grantMonitoring))
-            let enabled = NSButton(checkboxWithTitle: "Enable", target: self, action: #selector(toggleEnabled))
-            enabledButton = enabled
-            [access, monitoring].forEach { $0.bezelStyle = .rounded }
-            let controls = NSStackView(views: [access, monitoring, enabled])
-            controls.orientation = .horizontal
-            controls.spacing = 10
-            controls.translatesAutoresizingMaskIntoConstraints = false
-            content.addSubview(controls)
-            NSLayoutConstraint.activate([
-                scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-                scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-                scroll.topAnchor.constraint(equalTo: content.topAnchor),
-                scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -54),
-                controls.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 18),
-                controls.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -18),
-                controls.centerYAnchor.constraint(equalTo: content.bottomAnchor, constant: -27)
-            ])
+            window.contentView = NSHostingView(rootView: view)
             window.center()
             diagnostics = window
-            diagnosticsText = text
         }
-        updateMenu()
-        renderDiagnostics()
         NSApp.activate(ignoringOtherApps: true)
         diagnostics?.makeKeyAndOrderFront(nil)
-        diagnosticsTimer?.invalidate()
-        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in self?.input.refresh() }
-        RunLoop.main.add(timer, forMode: .common)
-        diagnosticsTimer = timer
-    }
-
-    private func renderDiagnostics() {
-        guard let text = diagnosticsText else { return }
-        let selected = text.selectedRanges
-        text.string = """
-        PINCHDIAL 0.1 — EXPERIMENTAL NATIVE MAGNIFICATION
-
-        SETUP
-        1. In Keychron Launcher, map clockwise to F18 and
-           counterclockwise to F19 (one key press per detent).
-        2. Use the menu-bar icon to grant Accessibility access.
-           Grant Input Monitoring too if input is unavailable.
-        3. Quit and reopen PinchDial after granting access.
-        4. Enable PinchDial. Close this
-           window, focus Safari/Preview/Maps, place the pointer
-           over content, and rotate the dial.
-
-        STATUS
-        \(snapshot.status)
-        macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)
-        Accessibility: \(AXIsProcessTrusted() ? "granted" : "not granted")
-        Listen access: \(CGPreflightListenEventAccess() ? "granted" : "not granted")
-        Post access: \(CGPreflightPostEventAccess() ? "granted" : "not granted")
-        Secure Input: \(IsSecureEventInputEnabled() ? "active" : "inactive")
-        Event tap: \(snapshot.tapConnected ? "connected" : "not connected")
-        Matched key presses: \(snapshot.matchedPresses)
-        Last matched input: \(snapshot.lastInput)
-        Submitted gesture samples: \(snapshot.postedSamples)
-        Gesture active: \(snapshot.gestureActive ? "yes" : "no")
-        Sensitivity (log units/detent): \(configuration.sensitivity)
-        App: \(Bundle.main.bundlePath)
-
-        IMPORTANT LIMITS
-        The gesture backend uses undocumented CGEvent fields.
-        Submitted samples do not prove an app received them.
-        This app does not emulate raw trackpad finger contacts.
-        F18/F19 from any device are reserved while enabled.
-        No unrelated keystrokes are recorded or logged.
-
-        Close this window to stop diagnostic refreshes.
-        Disable or Quit from the menu bar to stop translation.
-        """
-        text.selectedRanges = selected.filter { $0.rangeValue.upperBound <= (text.string as NSString).length }
     }
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === diagnostics else { return }
-        diagnosticsTimer?.invalidate()
-        diagnosticsTimer = nil
         NSApp.setActivationPolicy(.accessory)
     }
 
@@ -283,7 +197,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func quit() { NSApp.terminate(nil) }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        diagnosticsTimer?.invalidate()
         input.shutdown { sender.reply(toApplicationShouldTerminate: true) }
         return .terminateLater
     }

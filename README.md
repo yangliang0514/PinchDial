@@ -30,7 +30,7 @@ Run the app bundle from a consistent location and keep the same signing identity
 
 Sensitivity can be changed from the menu. Disable PinchDial to pass F18/F19 through normally, or choose Quit to stop it. While enabled, it captures F18/F19 from every device; other keys pass through.
 
-If the dial does nothing, use **Show Setup & Diagnostics** to check permissions and whether key presses arrive.
+**Show Setup…** opens a compact setup UI with zoom shortcut fields, a sensitivity slider, menu-bar and login checkboxes, and permission indicators. These new controls are a UI preview: edits stay in the window and do not change app behavior or saved settings. Permission indicators reflect access when the window is created; request buttons are not connected yet. Continue using the existing menu commands to change actual settings or request access.
 
 ## Tests
 
