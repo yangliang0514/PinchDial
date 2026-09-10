@@ -36,7 +36,11 @@ Disable PinchDial to pass assigned keys through normally, or choose Quit to stop
 
 Assignments apply immediately and persist across launches. Invalid searches cannot become shortcuts, and both directions cannot use the same key. Only single ordinary keys are supported in this version; modifier-only, media, and power keys are excluded. Letter and punctuation names refer to physical US keyboard positions, which may differ from the characters on another layout. Caps Lock and the Fn/numeric-pad event flags do not change shortcut matching. F18/F19 remain recommended because choosing a typing key takes that key away from other apps while enabled. Map your device to send the selected keys separately; selecting a key in PinchDial does not reprogram your device.
 
-The menu-bar/login checkboxes and permission buttons in the setup window remain a UI preview. Continue using the existing menu commands to change those settings or request access.
+**Show in menu bar** immediately shows or hides the right-side PinchDial icon and remembers the choice across launches. PinchDial stays in the Dock and app switcher, even after closing Setup. Click its Dock icon to reopen Setup, or use **PinchDial → Show Setup…** (Command-comma) when the app is active. The left-side application menu also offers About, Hide, and Quit (Command-Q). Closing Setup does not stop zooming; Quit does.
+
+**Launch at Login** in Setup registers or unregisters PinchDial with macOS immediately. Its checkbox reflects the system registration, including pending approval. If **Approval Needed…** appears, click it and allow PinchDial in System Settings; the status refreshes when you return to the app. Errors are shown without saving an incorrect checkbox state. This option is available only in Setup, not the right-side status-icon menu.
+
+The permission buttons in the setup window remain a UI preview. Continue using the existing status-icon menu commands to request access; turn **Show in menu bar** back on if needed.
 
 ## Tests
 

@@ -13,14 +13,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var statusItem: NSStatusItem!
     private let statusRow = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
     private var enabledItem: NSMenuItem!
-    private var loginItem: NSMenuItem!
+    private let loginState = LoginState()
     private let sensitivityState = SensitivityState()
     private var diagnostics: NSWindow?
     private var observers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
-        defaults.register(defaults: ["enabled": true])
+        NSApp.setActivationPolicy(.regular)
+        defaults.register(defaults: ["enabled": true, "showInMenuBar": true])
         configuration.enabled = defaults.bool(forKey: "enabled")
         configuration.sensitivity = ZoomSensitivity.restored(
             (defaults.object(forKey: "sensitivity") as? NSNumber)?.doubleValue
@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         sensitivityState.value = configuration.sensitivity
         configuration.shortcuts = ZoomShortcuts.restored(from: defaults.data(forKey: "zoomShortcuts"))
         buildMenu()
+        buildApplicationMenu()
+        refreshLoginStatus()
         input.onSnapshot = { [weak self] value in
             guard let self else { return }
             snapshot = value
@@ -69,11 +71,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         item("Grant Input Monitoring…", #selector(grantMonitoring), in: menu)
         menu.addItem(.separator())
         item("Show Setup…", #selector(showDiagnostics), in: menu)
-        loginItem = item("Launch at Login", #selector(toggleLogin), in: menu)
         menu.addItem(.separator())
         item("Quit PinchDial", #selector(quit), in: menu)
         statusItem.menu = menu
+        statusItem.isVisible = defaults.bool(forKey: "showInMenuBar")
         updateMenu()
+    }
+
+    private func buildApplicationMenu() {
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu(title: "PinchDial")
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+
+        let about = NSMenuItem(title: "About PinchDial", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        about.target = NSApp
+        appMenu.addItem(about)
+        appMenu.addItem(.separator())
+        item("Show Setup…", #selector(showDiagnostics), in: appMenu).keyEquivalent = ","
+        appMenu.addItem(.separator())
+        let services = NSMenu(title: "Services")
+        let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
+        servicesItem.submenu = services
+        appMenu.addItem(servicesItem)
+        NSApp.servicesMenu = services
+        appMenu.addItem(.separator())
+        let hide = NSMenuItem(title: "Hide PinchDial", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        hide.target = NSApp
+        appMenu.addItem(hide)
+        let hideOthers = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        hideOthers.target = NSApp
+        appMenu.addItem(hideOthers)
+        let showAll = NSMenuItem(title: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        showAll.target = NSApp
+        appMenu.addItem(showAll)
+        appMenu.addItem(.separator())
+        item("Quit PinchDial", #selector(quit), in: appMenu).keyEquivalent = "q"
+
+        let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        let windowMenu = NSMenu(title: "Window")
+        windowItem.submenu = windowMenu
+        mainMenu.addItem(windowItem)
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        NSApp.windowsMenu = windowMenu
+        NSApp.mainMenu = mainMenu
+    }
+
+    private func setShowInMenuBar(_ visible: Bool) {
+        defaults.set(visible, forKey: "showInMenuBar")
+        statusItem.isVisible = visible
     }
 
     @discardableResult
@@ -91,9 +140,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func updateMenu() {
         enabledItem.state = configuration.enabled ? .on : .off
-        let status = SMAppService.mainApp.status
-        loginItem.state = status == .enabled ? .on : (status == .requiresApproval ? .mixed : .off)
-        loginItem.title = status == .requiresApproval ? "Launch at Login — Approval Needed…" : "Launch at Login"
     }
 
     private func apply() {
@@ -128,12 +174,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
     }
 
-    @objc private func toggleLogin() {
+    private func refreshLoginStatus() {
+        loginState.status = SMAppService.mainApp.status
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        refreshLoginStatus()
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        defer { refreshLoginStatus() }
         do {
-            switch SMAppService.mainApp.status {
-            case .enabled: try SMAppService.mainApp.unregister()
-            case .requiresApproval: SMAppService.openSystemSettingsLoginItems()
-            default: try SMAppService.mainApp.register()
+            let service = SMAppService.mainApp
+            if enabled {
+                if service.status != .enabled && service.status != .requiresApproval {
+                    try service.register()
+                }
+            } else if service.status == .enabled || service.status == .requiresApproval {
+                try service.unregister()
             }
         } catch {
             let alert = NSAlert()
@@ -141,11 +199,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             alert.informativeText = "Run the bundled PinchDial.app from a stable location, then try again.\n\n\(error.localizedDescription)"
             alert.runModal()
         }
-        updateMenu()
     }
 
     @objc private func showDiagnostics() {
-        NSApp.setActivationPolicy(.regular)
+        refreshLoginStatus()
         if diagnostics == nil {
             let view = SetupView(
                 initialShortcuts: configuration.shortcuts,
@@ -160,7 +217,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                     self.configuration.sensitivity = value
                     self.apply()
                 },
-                initialLaunchAtLogin: SMAppService.mainApp.status == .enabled,
+                initialShowInMenuBar: defaults.bool(forKey: "showInMenuBar"),
+                onShowInMenuBarChange: { [weak self] in self?.setShowInMenuBar($0) },
+                loginState: loginState,
+                onLaunchAtLoginChange: { [weak self] in self?.setLaunchAtLogin($0) },
                 accessibilityGranted: AXIsProcessTrusted(),
                 monitoringGranted: CGPreflightListenEventAccess()
             )
@@ -178,9 +238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         diagnostics?.makeKeyAndOrderFront(nil)
     }
 
-    func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow, window === diagnostics else { return }
-        NSApp.setActivationPolicy(.accessory)
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     private func observeWorkspace() {

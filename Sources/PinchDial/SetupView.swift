@@ -1,11 +1,18 @@
 import SwiftUI
 import PinchDialCore
+import ServiceManagement
 
 final class SensitivityState: ObservableObject {
     @Published var value = ZoomSensitivity.standard
 }
 
-/// Shortcut and sensitivity edits are live; other setup controls remain a UI preview.
+final class LoginState: ObservableObject {
+    @Published var status: SMAppService.Status = .notRegistered
+
+    var isRequested: Bool { status == .enabled || status == .requiresApproval }
+}
+
+/// Permission controls remain a UI preview.
 struct SetupView: View {
     @State private var shortcuts: ZoomShortcuts
     @State private var editingZoomIn = false
@@ -13,20 +20,26 @@ struct SetupView: View {
     let onShortcutsChange: (ZoomShortcuts) -> Void
     @ObservedObject var sensitivityState: SensitivityState
     let onSensitivityChange: (Double) -> Void
-    @State private var showInMenuBar = true
-    @State private var launchAtLogin: Bool
+    @State private var showInMenuBar: Bool
+    let onShowInMenuBarChange: (Bool) -> Void
+    @ObservedObject var loginState: LoginState
+    let onLaunchAtLoginChange: (Bool) -> Void
     let accessibilityGranted: Bool
     let monitoringGranted: Bool
 
     init(initialShortcuts: ZoomShortcuts, onShortcutsChange: @escaping (ZoomShortcuts) -> Void,
          sensitivityState: SensitivityState, onSensitivityChange: @escaping (Double) -> Void,
-         initialLaunchAtLogin: Bool,
+         initialShowInMenuBar: Bool, onShowInMenuBarChange: @escaping (Bool) -> Void,
+         loginState: LoginState, onLaunchAtLoginChange: @escaping (Bool) -> Void,
          accessibilityGranted: Bool, monitoringGranted: Bool) {
         _shortcuts = State(initialValue: initialShortcuts)
         self.onShortcutsChange = onShortcutsChange
         self.sensitivityState = sensitivityState
         self.onSensitivityChange = onSensitivityChange
-        _launchAtLogin = State(initialValue: initialLaunchAtLogin)
+        _showInMenuBar = State(initialValue: initialShowInMenuBar)
+        self.onShowInMenuBarChange = onShowInMenuBarChange
+        self.loginState = loginState
+        self.onLaunchAtLoginChange = onLaunchAtLoginChange
         self.accessibilityGranted = accessibilityGranted
         self.monitoringGranted = monitoringGranted
     }
@@ -76,7 +89,21 @@ struct SetupView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Show in menu bar", isOn: $showInMenuBar)
-                Toggle("Launch at Login", isOn: $launchAtLogin)
+                    .onChange(of: showInMenuBar, perform: onShowInMenuBarChange)
+                    .help("Show the PinchDial icon on the right side of the menu bar. Setup remains available from the Dock.")
+                HStack {
+                    Toggle("Launch at Login", isOn: Binding(
+                        get: { loginState.isRequested }, set: onLaunchAtLoginChange))
+                        .help("Start PinchDial automatically when you log in to your Mac.")
+                    if loginState.status == .requiresApproval {
+                        Spacer()
+                        Button("Approval Needed…") {
+                            SMAppService.openSystemSettingsLoginItems()
+                        }
+                        .font(.system(size: 10))
+                        .help("Allow PinchDial in System Settings to finish enabling launch at login.")
+                    }
+                }
             }
             .toggleStyle(.checkbox)
 
