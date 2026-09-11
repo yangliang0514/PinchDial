@@ -24,8 +24,8 @@ Run the app bundle from a consistent location and keep the same signing identity
 ## Setup and use
 
 1. Map the dial clockwise to **F18** and counterclockwise to **F19**, with one key press/release per step.
-2. Open PinchDial and use its menu to grant **Accessibility** access. Grant **Input Monitoring** if input is unavailable.
-3. Quit and reopen PinchDial after granting permissions.
+2. Open **Show Setup…** and use the **Permissions** buttons to grant **Accessibility** access. Grant **Input Monitoring** if input is unavailable.
+3. Return to PinchDial after granting permissions. If input remains unavailable or macOS requests a restart, quit and reopen PinchDial.
 4. Keep **Enable PinchDial** on. Focus the target app, place the pointer over its content, and turn the dial.
 
 In **Show Setup…**, move the **Sensitivity** slider toward **Slower** for finer zoom control or **Faster** to zoom more with each dial step. Changes apply immediately and are saved automatically.
@@ -40,7 +40,7 @@ Assignments apply immediately and persist across launches. Invalid searches cann
 
 **Launch at Login** in Setup registers or unregisters PinchDial with macOS immediately. Its checkbox reflects the system registration, including pending approval. If **Approval Needed…** appears, click it and allow PinchDial in System Settings; the status refreshes when you return to the app. Errors are shown without saving an incorrect checkbox state. This option is available only in Setup, not the right-side status-icon menu.
 
-The permission buttons in the setup window remain a UI preview. Continue using the existing status-icon menu commands to request access; turn **Show in menu bar** back on if needed.
+The **Permissions** buttons in Setup request access and open the corresponding Privacy & Security page in System Settings. Granted permissions show a green checkmark. Status refreshes when Setup opens or PinchDial becomes active, and the input service reconnects when access changes. When either permission is missing, the Permissions heading includes “(click to request permission)”. After requesting access, if it still appears unavailable, Setup shows a reminder to restart to apply changes made in System Settings. Restarting does not grant access by itself. Permission controls are available only in Setup.
 
 ## Tests
 

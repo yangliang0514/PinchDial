@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var enabledItem: NSMenuItem!
     private let loginState = LoginState()
     private let sensitivityState = SensitivityState()
+    private let permissionState = PermissionState()
     private var diagnostics: NSWindow?
     private var observers: [NSObjectProtocol] = []
 
@@ -66,9 +67,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         menu.addItem(statusRow)
         menu.addItem(.separator())
         enabledItem = item("Enable PinchDial", #selector(toggleEnabled), in: menu)
-        menu.addItem(.separator())
-        item("Grant Accessibility…", #selector(grantAccessibility), in: menu)
-        item("Grant Input Monitoring…", #selector(grantMonitoring), in: menu)
         menu.addItem(.separator())
         item("Show Setup…", #selector(showDiagnostics), in: menu)
         menu.addItem(.separator())
@@ -156,15 +154,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc private func toggleEnabled() { configuration.enabled.toggle(); apply() }
 
-    @objc private func grantAccessibility() {
+    private func grantAccessibility() {
+        permissionState.accessibilityRequested = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
         openPrivacy("Privacy_Accessibility")
+        refreshPermissions()
     }
 
-    @objc private func grantMonitoring() {
+    private func grantMonitoring() {
+        permissionState.monitoringRequested = true
         _ = CGRequestListenEventAccess()
         openPrivacy("Privacy_ListenEvent")
+        refreshPermissions()
     }
 
     private func openPrivacy(_ pane: String) {
@@ -178,8 +180,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         loginState.status = SMAppService.mainApp.status
     }
 
+    private func refreshPermissions() {
+        let accessibility = AXIsProcessTrusted()
+        let monitoring = CGPreflightListenEventAccess()
+        let changed = accessibility != permissionState.accessibilityGranted
+            || monitoring != permissionState.monitoringGranted
+        permissionState.accessibilityGranted = accessibility
+        permissionState.monitoringGranted = monitoring
+        if changed || !snapshot.tapConnected {
+            input.configure(configuration, reconnect: true)
+        }
+        diagnostics?.setContentSize(NSSize(width: 340, height: permissionState.showsRestartHint ? 510 : 478))
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         refreshLoginStatus()
+        refreshPermissions()
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {
@@ -203,6 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     @objc private func showDiagnostics() {
         refreshLoginStatus()
+        refreshPermissions()
         if diagnostics == nil {
             let view = SetupView(
                 initialShortcuts: configuration.shortcuts,
@@ -221,10 +238,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 onShowInMenuBarChange: { [weak self] in self?.setShowInMenuBar($0) },
                 loginState: loginState,
                 onLaunchAtLoginChange: { [weak self] in self?.setLaunchAtLogin($0) },
-                accessibilityGranted: AXIsProcessTrusted(),
-                monitoringGranted: CGPreflightListenEventAccess()
+                permissionState: permissionState,
+                onGrantAccessibility: { [weak self] in self?.grantAccessibility() },
+                onGrantMonitoring: { [weak self] in self?.grantMonitoring() }
             )
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 478),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: permissionState.showsRestartHint ? 510 : 478),
                                   styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
             window.title = "PinchDial"

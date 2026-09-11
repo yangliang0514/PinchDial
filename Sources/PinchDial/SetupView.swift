@@ -12,7 +12,19 @@ final class LoginState: ObservableObject {
     var isRequested: Bool { status == .enabled || status == .requiresApproval }
 }
 
-/// Permission controls remain a UI preview.
+final class PermissionState: ObservableObject {
+    @Published var accessibilityGranted = false
+    @Published var monitoringGranted = false
+    @Published var accessibilityRequested = false
+    @Published var monitoringRequested = false
+
+    var hasMissingPermission: Bool { !accessibilityGranted || !monitoringGranted }
+    var showsRestartHint: Bool {
+        (accessibilityRequested && !accessibilityGranted)
+            || (monitoringRequested && !monitoringGranted)
+    }
+}
+
 struct SetupView: View {
     @State private var shortcuts: ZoomShortcuts
     @State private var editingZoomIn = false
@@ -24,14 +36,16 @@ struct SetupView: View {
     let onShowInMenuBarChange: (Bool) -> Void
     @ObservedObject var loginState: LoginState
     let onLaunchAtLoginChange: (Bool) -> Void
-    let accessibilityGranted: Bool
-    let monitoringGranted: Bool
+    @ObservedObject var permissionState: PermissionState
+    let onGrantAccessibility: () -> Void
+    let onGrantMonitoring: () -> Void
 
     init(initialShortcuts: ZoomShortcuts, onShortcutsChange: @escaping (ZoomShortcuts) -> Void,
          sensitivityState: SensitivityState, onSensitivityChange: @escaping (Double) -> Void,
          initialShowInMenuBar: Bool, onShowInMenuBarChange: @escaping (Bool) -> Void,
          loginState: LoginState, onLaunchAtLoginChange: @escaping (Bool) -> Void,
-         accessibilityGranted: Bool, monitoringGranted: Bool) {
+         permissionState: PermissionState,
+         onGrantAccessibility: @escaping () -> Void, onGrantMonitoring: @escaping () -> Void) {
         _shortcuts = State(initialValue: initialShortcuts)
         self.onShortcutsChange = onShortcutsChange
         self.sensitivityState = sensitivityState
@@ -40,8 +54,9 @@ struct SetupView: View {
         self.onShowInMenuBarChange = onShowInMenuBarChange
         self.loginState = loginState
         self.onLaunchAtLoginChange = onLaunchAtLoginChange
-        self.accessibilityGranted = accessibilityGranted
-        self.monitoringGranted = monitoringGranted
+        self.permissionState = permissionState
+        self.onGrantAccessibility = onGrantAccessibility
+        self.onGrantMonitoring = onGrantMonitoring
     }
 
     var body: some View {
@@ -109,16 +124,27 @@ struct SetupView: View {
 
             Divider().padding(.vertical, 16)
 
-            sectionTitle("Permissions")
+            HStack(spacing: 4) {
+                sectionTitle("Permissions")
+                if permissionState.hasMissingPermission {
+                    Text("(click to request permission)")
+                        .font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+            }
             HStack(spacing: 10) {
-                permission("Accessibility", granted: accessibilityGranted)
-                permission("Input Monitoring", granted: monitoringGranted)
+                permission("Accessibility", granted: permissionState.accessibilityGranted, action: onGrantAccessibility)
+                permission("Input Monitoring", granted: permissionState.monitoringGranted, action: onGrantMonitoring)
             }
             .padding(.top, 10)
+            if permissionState.showsRestartHint {
+                Text("If you enabled access, restart to apply it.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .padding(.top, 10)
+            }
         }
         .font(.system(size: 12))
         .padding(22)
-        .frame(width: 340, height: 478, alignment: .topLeading)
+        .frame(width: 340, height: permissionState.showsRestartHint ? 510 : 478, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -157,7 +183,7 @@ struct SetupView: View {
         }
     }
 
-    private func permission(_ title: String, granted: Bool) -> some View {
+    private func permission(_ title: String, granted: Bool, action: @escaping () -> Void) -> some View {
         Group {
             if granted {
                 HStack(spacing: 5) {
@@ -166,12 +192,11 @@ struct SetupView: View {
                 }
                 .accessibilityLabel("\(title) granted")
             } else {
-                // Intentionally unconnected: this UI pass must not request access.
-                Button(action: {}) {
+                Button(action: action) {
                     Text(title).frame(maxWidth: .infinity)
                 }
                 .controlSize(.regular)
-                .help("Permission requests will be connected later.")
+                .help("Allow PinchDial in System Settings → Privacy & Security → \(title).")
             }
         }
         .frame(maxWidth: .infinity, minHeight: 24)
