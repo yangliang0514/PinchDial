@@ -1,57 +1,63 @@
 # PinchDial
 
-A small macOS menu-bar utility originally made for the **Keychron Nape Pro’s dial**. By default, it turns **F18 into smooth pinch-to-zoom in** and **F19 into zoom out**, and works with any keyboard or mouse that can be configured to send those keys.
+Turn a keyboard or mouse dial into smooth pinch-to-zoom on macOS. Originally made for the **Keychron Nape Pro**, PinchDial works with any device that can send **F18** (zoom in) and **F19** (zoom out), or your own assigned keys.
 
-Requires macOS 13+ and an Xcode/Swift toolchain. No external dependencies.
+Requires **macOS 13+** and a **Swift 5.9+ toolchain** to build. No external dependencies.
 
 ## Build and run
 
-From the project directory, with PinchDial quit:
+Complete the signing setup below before your first build. Then, from the project directory with PinchDial quit:
 
 ```sh
 bash scripts/build.sh
 open dist/PinchDial.app
 ```
 
-The build requires a valid local code-signing certificate named **PinchDial Local Development**. If it is already installed, reuse it.
+### One-time local signing setup
 
-For a new machine, create it in **Keychain Access → Certificate Assistant → Create a Certificate**: choose **Self Signed Root** and **Code Signing**, save it in the login keychain, and set its **Code Signing** trust to **Always Trust**. Keep the certificate and its private key for subsequent builds. Verify it appears in `security find-identity -v -p codesigning`.
+The build requires a code-signing certificate named **PinchDial Local Development**. Reuse it if already installed; otherwise, create it in **Keychain Access → Certificate Assistant → Create a Certificate**:
 
-To use another certificate, run `CODE_SIGN_IDENTITY='Your Certificate Name' bash scripts/build.sh`.
+- **Name:** PinchDial Local Development
+- **Identity Type:** Self Signed Root
+- **Certificate Type:** Code Signing
+- Save it in the **login** keychain, then set its **Code Signing** trust to **Always Trust**.
 
-Run the app bundle from a consistent location and keep the same signing identity so macOS can recognize it across rebuilds. Run only one copy.
+Verify it appears in `security find-identity -v -p codesigning`. Keep the certificate and its private key for future builds. To use another certificate:
 
-## Setup and use
+```sh
+CODE_SIGN_IDENTITY='Your Certificate Name' bash scripts/build.sh
+```
 
-1. Map the dial clockwise to **F18** and counterclockwise to **F19**, with one key press/release per step.
+Keep the same signing identity and app location across rebuilds so macOS can recognize the app. Run only one copy.
+
+## Setup
+
+1. Map your dial clockwise to **F18** and counterclockwise to **F19**, sending one key press/release per step.
 2. Open **Show Setup…** and use the **Permissions** buttons to grant **Accessibility** access. Grant **Input Monitoring** if input is unavailable.
-3. Return to PinchDial after granting permissions. If input remains unavailable or macOS requests a restart, quit and reopen PinchDial.
-4. Keep **Enable PinchDial** on. Focus the target app, place the pointer over its content, and turn the dial.
+3. Return to PinchDial. If input still doesn’t work or macOS requests a restart, quit and reopen the app.
+4. Keep **Enable PinchDial** on, focus the target app, place the pointer over its content, and turn the dial.
 
-In **Show Setup…**, move the **Sensitivity** slider toward **Slower** for finer zoom control or **Faster** to zoom more with each dial step. Changes apply immediately and are saved automatically.
+## Everyday use
 
-Disable PinchDial to pass assigned keys through normally, or choose Quit to stop it. While enabled, it captures assigned keys from every device in other apps; keys remain available inside PinchDial for setup. Each quick press generates one zoom step. Holding a key for 400 ms starts continuous zoom at 12 steps per second, independent of macOS keyboard repeat settings. Releasing the key stops repeating zoom. Changing apps or settings, pressing a shortcut modifier, or losing input access cancels the hold; press again to resume. Command, Option, Control, and Shift combinations pass through.
+- **Sensitivity:** Adjust the slider in Setup for finer or faster zoom.
+- **Zoom shortcuts:** Search for a key or choose **Record a key**. Each direction needs a different single key; modifier-only, media, and power keys aren’t supported. Changes save automatically. Configure your device separately to send those keys.
+- **Press or hold:** A quick press zooms one step; holding a key starts continuous zoom. Command, Option, Control, and Shift combinations pass through normally.
+- **Enable or disable:** Assigned keys are captured in other apps while enabled. Disable PinchDial to use them normally. F18/F19 are recommended to avoid taking over typing keys.
+- **Launch at Login:** Enable it in Setup. If **Approval Needed…** appears, click it and approve PinchDial in System Settings.
+- **Show in menu bar:** Hide or show the status icon. You can always reopen Setup from the Dock. Closing Setup keeps zooming active; **Quit** stops the app.
 
-**Show Setup… → Zoom shortcuts** lets you choose a key for each direction. Search the supported-key list (including F1–F20) and click a result to apply it immediately. Double-click a result to apply it and close the picker, or click outside to close it. **Use Default F18/F19** restores that direction’s default key (unless the other direction is using it). You can also choose **Record a key** and press a key or turn a configured dial to apply the recorded key immediately. Recording only listens while PinchDial is active; switching apps stops it.
+## Development and compatibility
 
-Assignments apply immediately and persist across launches. Invalid searches cannot become shortcuts, and both directions cannot use the same key. Only single ordinary keys are supported in this version; modifier-only, media, and power keys are excluded. Letter and punctuation names refer to physical US keyboard positions, which may differ from the characters on another layout. Caps Lock and the Fn/numeric-pad event flags do not change shortcut matching. F18/F19 remain recommended because choosing a typing key takes that key away from other apps while enabled. Map your device to send the selected keys separately; selecting a key in PinchDial does not reprogram your device.
-
-**Show in menu bar** immediately shows or hides the right-side PinchDial icon and remembers the choice across launches. PinchDial stays in the Dock and app switcher, even after closing Setup. Click its Dock icon to reopen Setup, or use **PinchDial → Show Setup…** (Command-comma) when the app is active. The left-side application menu also offers About, Hide, and Quit (Command-Q). Closing Setup does not stop zooming; Quit does.
-
-**Launch at Login** in Setup registers or unregisters PinchDial with macOS immediately. Its checkbox reflects the system registration, including pending approval. If **Approval Needed…** appears, click it and allow PinchDial in System Settings; the status refreshes when you return to the app. Errors are shown without saving an incorrect checkbox state. This option is available only in Setup, not the right-side status-icon menu.
-
-The **Permissions** buttons in Setup request access and open the corresponding Privacy & Security page in System Settings. Granted permissions show a green checkmark. Status refreshes when Setup opens or PinchDial becomes active, and the input service reconnects when access changes. When either permission is missing, the Permissions heading includes “(click to request permission)”. After requesting access, if it still appears unavailable, Setup shows a reminder to restart to apply changes made in System Settings. Restarting does not grant access by itself. Permission controls are available only in Setup.
-
-## Tests
+Run the unit tests:
 
 ```sh
 bash scripts/test.sh
 ```
 
-The unit tests cover custom shortcuts, modifier filtering, persistence validation, held-key ownership during reassignment, the key catalog, and gesture smoothing. To check gesture encoding locally without posting input:
+Check gesture encoding without posting input:
 
 ```sh
 dist/PinchDial.app/Contents/MacOS/PinchDial --check-gesture-encoding
 ```
 
-Verify actual zooming with the physical dial in your target apps. The gesture backend uses undocumented macOS event fields, so compatibility can vary by app and OS version; automated checks do not prove delivery.
+The gesture backend uses undocumented macOS event fields, so compatibility varies by app and OS version. Verify actual zooming with your dial in the apps you use; automated checks do not confirm gesture delivery.
