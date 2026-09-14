@@ -31,6 +31,9 @@ public struct MagnificationEngine {
     private var lastFrame = 0.0
     private var lastDirection = 0
     private let epsilon = 0.00001
+    // Emergency bound for pathological bursts, not a normal zoom-rate limit.
+    // Allows over 100 maximum-sensitivity detents to queue without a frame.
+    private let maximumPending = 16.0
 
     public init(configuration: Configuration = .init()) {
         self.configuration = configuration
@@ -52,7 +55,11 @@ public struct MagnificationEngine {
         lastDirection = sign
         lastInput = time
         let sensitivity = ZoomSensitivity.clamped(configuration.sensitivity)
-        pending = min(max(pending + Double(sign) * sensitivity, -0.5), 0.5)
+        let nextPending = pending + Double(sign) * sensitivity
+        guard nextPending.isFinite, abs(nextPending) <= maximumPending else {
+            return samples + finish(cancelled: true)
+        }
+        pending = nextPending
         return samples
     }
 
@@ -64,8 +71,9 @@ public struct MagnificationEngine {
         lastFrame = time
         let tau = configuration.timeConstant.isFinite
             ? min(max(configuration.timeConstant, 0.01), 0.15) : 0.045
+        // Smooth every detent without limiting throughput per frame. A fixed
+        // frame cap makes fast rotation plateau and builds a delayed zoom tail.
         var amount = pending * (1 - exp(-elapsed / tau))
-        amount = min(max(amount, -0.04), 0.04)
         if abs(pending - amount) < epsilon { amount = pending }
         pending -= amount
         var samples: [GestureSample] = []

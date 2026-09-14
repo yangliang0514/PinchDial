@@ -19,6 +19,27 @@ final class MagnificationEngineTests: XCTestCase {
         samples.reduce(0) { $0 + log1p($1.magnification) }
     }
 
+    /// Deliver evenly spaced detents independently of the output frame cadence.
+    private func rotate(_ engine: inout MagnificationEngine, rate: Int,
+                        direction: Int = 1, from start: Double = 0,
+                        seconds: Int = 3, fps: Int = 60) -> [[GestureSample]] {
+        var frames: [[GestureSample]] = []
+        var step = 0
+        for frame in 1...(seconds * fps) {
+            let now = start + Double(frame) / Double(fps)
+            var samples: [GestureSample] = []
+            while step < rate * seconds {
+                let inputTime = start + (Double(step) + 0.5) / Double(rate)
+                guard inputTime <= now + 1e-12 else { break }
+                samples += engine.push(direction: direction, at: inputTime)
+                step += 1
+            }
+            samples += engine.advance(to: now)
+            frames.append(samples)
+        }
+        return frames
+    }
+
     func testOneDetentProducesOneCompleteGestureAndPreservesAmount() {
         var engine = MagnificationEngine()
         let beginning = engine.push(direction: 1, at: 10)
@@ -76,12 +97,88 @@ final class MagnificationEngineTests: XCTestCase {
         XCTAssertEqual(engine.advance(to: 1), [GestureSample(.cancelled)])
     }
 
-    func testBacklogAndFrameDeltaAreBounded() {
+    func testSustainedRotationPreservesRateAndTotalAcrossSensitivitiesAndFrameRates() {
+        for sensitivity in [0.01, ZoomSensitivity.standard, 0.15] {
+            for fps in [30, 60, 120] {
+                for rate in [10, 20, 40, 60, 120, 240] {
+                    for direction in [-1, 1] {
+                        var configuration = MagnificationEngine.Configuration()
+                        configuration.sensitivity = sensitivity
+                        var engine = MagnificationEngine(configuration: configuration)
+                        let frames = rotate(&engine, rate: rate, direction: direction, fps: fps)
+                        let expectedRate = Double(direction * rate) * sensitivity
+                        let context = "sensitivity=\(sensitivity), fps=\(fps), rate=\(rate), direction=\(direction)"
+                        XCTAssertEqual(logAmount(frames.suffix(fps).flatMap { $0 }),
+                                       expectedRate, accuracy: 1e-8, context)
+                        let samples = frames.flatMap { $0 } + drain(&engine, from: 3, frame: 1 / Double(fps))
+                        XCTAssertEqual(logAmount(samples), expectedRate * 3, accuracy: 1e-8, context)
+                        XCTAssertTrue(samples.allSatisfy { $0.magnification.isFinite && $0.magnification > -1 }, context)
+                    }
+                }
+            }
+        }
+    }
+
+    func testSlowFastSlowRotationTracksEachRateWithoutLosingMovement() {
         var engine = MagnificationEngine()
-        for _ in 0..<10000 { _ = engine.push(direction: 1, at: 0) }
-        XCTAssertLessThanOrEqual(engine.pending, 0.5)
-        let samples = drain(&engine, from: 0)
-        XCTAssertTrue(samples.allSatisfy { abs(log1p($0.magnification)) <= 0.040000001 })
+        var samples: [GestureSample] = []
+        for (index, rate) in [20, 120, 20].enumerated() {
+            let frames = rotate(&engine, rate: rate, from: Double(index * 3))
+            samples += frames.flatMap { $0 }
+            XCTAssertEqual(logAmount(frames.suffix(60).flatMap { $0 }),
+                           Double(rate) * ZoomSensitivity.standard, accuracy: 1e-8)
+            // The new speed should settle promptly, including after slowing down.
+            let settledWindow = frames.dropFirst(12).prefix(12).flatMap { $0 }
+            XCTAssertEqual(logAmount(settledWindow) / 0.2,
+                           Double(rate) * ZoomSensitivity.standard, accuracy: 0.03)
+        }
+        samples += drain(&engine, from: 9)
+        XCTAssertEqual(logAmount(samples), Double((20 + 120 + 20) * 3) * ZoomSensitivity.standard,
+                       accuracy: 1e-8)
+    }
+
+    func testFastRotationTailSettlesPromptlyAndReversalTakesControl() {
+        for direction in [-1, 1] {
+            var configuration = MagnificationEngine.Configuration()
+            configuration.sensitivity = 0.15
+            var engine = MagnificationEngine(configuration: configuration)
+            _ = rotate(&engine, rate: 240, direction: direction)
+            let pendingAtStop = abs(engine.pending)
+            _ = engine.advance(to: 3.135)
+            XCTAssertLessThan(abs(engine.pending), pendingAtStop * 0.051,
+                              "At least 95% of the tail should settle within 135 ms")
+            _ = engine.push(direction: -direction, at: 3.14)
+            let reversed = engine.advance(to: 3.15)
+            XCTAssertGreaterThan(logAmount(reversed) * Double(-direction), 0)
+        }
+    }
+
+    func testBriefFrameDelayPreservesFastRotationMovement() {
+        var configuration = MagnificationEngine.Configuration()
+        configuration.sensitivity = 0.15
+        var engine = MagnificationEngine(configuration: configuration)
+        var samples = rotate(&engine, rate: 120).flatMap { $0 }
+        // Input continues while output misses six frames, then the timer resumes.
+        for step in 0..<12 {
+            samples += engine.push(direction: 1, at: 3 + Double(step) / 120)
+        }
+        samples += engine.advance(to: 3.1)
+        samples += drain(&engine, from: 3.1)
+        XCTAssertEqual(logAmount(samples), Double(360 + 12) * 0.15, accuracy: 1e-8)
+    }
+
+    func testPathologicalBurstCancelsInsteadOfClippingAndReplayingBacklog() {
+        var configuration = MagnificationEngine.Configuration()
+        configuration.sensitivity = 0.15
+        for direction in [-1, 1] {
+            var engine = MagnificationEngine(configuration: configuration)
+            for _ in 0..<106 { _ = engine.push(direction: direction, at: 0) }
+            XCTAssertTrue(engine.isActive)
+            XCTAssertEqual(engine.push(direction: direction, at: 0), [GestureSample(.cancelled)])
+            XCTAssertEqual(engine.pending, 0)
+            XCTAssertTrue(engine.advance(to: 0.1).isEmpty)
+            XCTAssertEqual(engine.push(direction: direction, at: 1).first?.phase, .began)
+        }
     }
 
     func testSeparateOppositeGesturesAreReciprocal() {
@@ -103,7 +200,7 @@ final class MagnificationEngineTests: XCTestCase {
                 _ = engine.push(direction: direction, at: 0)
                 let samples = drain(&engine, from: 0)
                 XCTAssertEqual(logAmount(samples), Double(direction) * sensitivity, accuracy: 1e-10)
-                XCTAssertTrue(samples.allSatisfy { abs(log1p($0.magnification)) <= 0.040000001 })
+                XCTAssertTrue(samples.allSatisfy { $0.magnification.isFinite && $0.magnification > -1 })
             }
         }
     }
