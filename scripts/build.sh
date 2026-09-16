@@ -2,6 +2,20 @@
 set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
+SCRATCH_DIR="$PROJECT_DIR/.build"
+APP_DIR="$PROJECT_DIR/dist/PinchDial.app"
+case "${1:-}" in
+    "") ;;
+    --universal)
+        SCRATCH_DIR="$PROJECT_DIR/.build/universal"
+        APP_DIR="$PROJECT_DIR/dist/release/PinchDial.app"
+        ;;
+    *) printf 'Usage: bash scripts/build.sh [--universal]\n' >&2; exit 1 ;;
+esac
+if [ "$#" -gt 1 ]; then
+    printf 'Usage: bash scripts/build.sh [--universal]\n' >&2
+    exit 1
+fi
 # Reuse this certificate and its private key across rebuilds. Never fall back to
 # ad-hoc signing: that makes the designated requirement depend on the code hash.
 CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:-PinchDial Local Development}"
@@ -30,10 +44,19 @@ EOF
 fi
 export CLANG_MODULE_CACHE_PATH="$PROJECT_DIR/.build/clang-module-cache"
 export SWIFTPM_MODULECACHE_OVERRIDE="$PROJECT_DIR/.build/swift-module-cache"
-BUILD_OPTIONS=(--disable-sandbox --scratch-path "$PROJECT_DIR/.build" --cache-path "$PROJECT_DIR/.build/cache" --config-path "$PROJECT_DIR/.build/configuration" --security-path "$PROJECT_DIR/.build/security")
+BUILD_OPTIONS=(--disable-sandbox --scratch-path "$SCRATCH_DIR" --cache-path "$PROJECT_DIR/.build/cache" --config-path "$PROJECT_DIR/.build/configuration" --security-path "$PROJECT_DIR/.build/security")
+if [ "${1:-}" = --universal ]; then
+    BUILD_OPTIONS+=(--arch arm64 --arch x86_64)
+fi
 swift build "${BUILD_OPTIONS[@]}" -c release
 BIN_DIR="$(swift build "${BUILD_OPTIONS[@]}" -c release --show-bin-path)"
-APP_DIR="$PROJECT_DIR/dist/PinchDial.app"
+if [ "${1:-}" = --universal ]; then
+    for architecture in arm64 x86_64; do
+        lipo "$BIN_DIR/PinchDial" -verify_arch "$architecture"
+    done
+    # Release output is separate from the development app and is always clean.
+    rm -rf "$APP_DIR"
+fi
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_DIR/PinchDial" "$APP_DIR/Contents/MacOS/PinchDial"
 cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"

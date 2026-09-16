@@ -1,0 +1,29 @@
+Install PinchDial
+=================
+
+Requires macOS 13 Ventura or later. Supports Apple Silicon and Intel Macs.
+No Xcode, source code, signing certificate, or Apple developer account is needed.
+
+1. Quit any existing copy of PinchDial.
+2. Drag PinchDial.app onto the Applications shortcut in this disk image.
+   When updating, replace the old copy in Applications.
+3. Eject the disk image, then open PinchDial from Applications.
+4. This personal-use build is locally signed and is not notarized by Apple.
+   If macOS blocks it, open System Settings > Privacy & Security, scroll to
+   Security, and choose Open Anyway for PinchDial. Confirm Open if prompted.
+   This is an exception for this app; you do not need to disable Gatekeeper.
+   A Mac managed by an organization may not allow this exception.
+5. In PinchDial's Setup window, grant Accessibility access. Grant Input
+   Monitoring if input is unavailable. Quit and reopen if macOS requests it.
+6. Set your dial to send F18 clockwise and F19 counterclockwise, or use your
+   assigned single-key shortcuts. Enable PinchDial and test zooming in your apps.
+
+Keep only one installed copy running. Enable Launch at Login in Setup if wanted.
+Permissions must be granted on each Mac and may need approval again after updates.
+
+Download updates:
+https://github.com/yangliang0514/PinchDial/releases/latest
+
+The gesture backend uses undocumented macOS event fields. Zoom behavior can
+vary by app and macOS version; installing successfully does not guarantee that
+every app supports these gestures.
