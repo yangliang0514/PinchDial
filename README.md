@@ -2,7 +2,11 @@
 
 Turn a keyboard or mouse dial into smooth pinch-to-zoom on macOS. Originally made for the **Keychron Nape Pro**, PinchDial works with any device that can send **F18** (zoom in) and **F19** (zoom out), or your own assigned keys.
 
-Requires **macOS 13+** and a **Swift 5.9+ toolchain** to build. No external dependencies.
+**[Download PinchDial.dmg](https://github.com/yangliang0514/PinchDial/releases/latest/download/PinchDial.dmg)** — macOS 13+, Apple Silicon and Intel.
+
+Locally signed, not notarized. If blocked, use **System Settings → Privacy & Security → Open Anyway**. Grant permissions as described in Setup below.
+
+Building from source requires a **Swift 5.9+ toolchain**. No external dependencies.
 
 ## Build and run
 
@@ -29,6 +33,16 @@ CODE_SIGN_IDENTITY='Your Certificate Name' bash scripts/build.sh
 ```
 
 Keep the same signing identity and app location across rebuilds so macOS can recognize the app. Run only one copy.
+
+## Create a release
+
+Set the version in `Resources/Info.plist`, add matching notes in `docs/releases/vVERSION.md`, then run:
+
+```sh
+bash scripts/release.sh
+```
+
+This tests, builds, signs, and packages the universal app as `dist/PinchDial.dmg`. It does not publish anything.
 
 ## Setup
 
