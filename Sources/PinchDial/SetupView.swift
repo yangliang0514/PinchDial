@@ -105,7 +105,7 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle("Show in menu bar", isOn: $showInMenuBar)
                     .onChange(of: showInMenuBar, perform: onShowInMenuBarChange)
-                    .help("Show the PinchDial icon on the right side of the menu bar. Setup remains available from the Dock.")
+                    .help("Show the PinchDial icon on the right side of the menu bar. Reopen PinchDial from Applications to access Setup when the icon is hidden.")
                 HStack {
                     Toggle("Launch at Login", isOn: Binding(
                         get: { loginState.isRequested }, set: onLaunchAtLoginChange))

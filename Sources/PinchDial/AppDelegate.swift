@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var observers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(.accessory)
         defaults.register(defaults: ["enabled": true, "showInMenuBar": true])
         configuration.enabled = defaults.bool(forKey: "enabled")
         configuration.sensitivity = ZoomSensitivity.restored(
@@ -218,6 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     @objc private func showDiagnostics() {
+        NSApp.setActivationPolicy(.regular)
         refreshLoginStatus()
         refreshPermissions()
         if diagnostics == nil {
@@ -254,6 +255,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         NSApp.activate(ignoringOtherApps: true)
         diagnostics?.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === diagnostics else { return }
+        NSApp.setActivationPolicy(.accessory)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

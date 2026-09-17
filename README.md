@@ -2,7 +2,7 @@
 
 Turn a keyboard or mouse dial into smooth pinch-to-zoom on macOS. Originally made for the **Keychron Nape Pro**, PinchDial works with any device that can send **F18** (zoom in) and **F19** (zoom out), or your own assigned keys.
 
-**[Download PinchDial.dmg](https://github.com/yangliang0514/PinchDial/releases/latest/download/PinchDial.dmg)** — macOS 13+, Apple Silicon and Intel.
+**[Download PinchDial v0.1.1](https://github.com/yangliang0514/PinchDial/releases/latest/download/PinchDial.dmg)** — macOS 13+, Apple Silicon and Intel.
 
 Locally signed, not notarized. If blocked, use **System Settings → Privacy & Security → Open Anyway**. Grant permissions as described in Setup below.
 
@@ -58,7 +58,7 @@ This tests, builds, signs, and packages the universal app as `dist/PinchDial.dmg
 - **Press or hold:** A quick press zooms one step; holding a key starts continuous zoom. Command, Option, Control, and Shift combinations pass through normally.
 - **Enable or disable:** Assigned keys are captured in other apps while enabled. Disable PinchDial to use them normally. F18/F19 are recommended to avoid taking over typing keys.
 - **Launch at Login:** Enable it in Setup. If **Approval Needed…** appears, click it and approve PinchDial in System Settings.
-- **Show in menu bar:** Hide or show the status icon. You can always reopen Setup from the Dock. Closing Setup keeps zooming active; **Quit** stops the app.
+- **Show in menu bar:** Independently hide or show the right-side status icon. Closing Setup hides the Dock icon and application menus while zooming stays active. Reopen PinchDial from Applications to return to Setup; **Quit** stops the app.
 
 ## Development and compatibility
 
